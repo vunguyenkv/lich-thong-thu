@@ -78,10 +78,13 @@ create policy "khach xoa ho so cua minh" on ho_so for delete using (auth.uid() =
 -- ===== Chờ duyệt: khách tự đăng ký xong phải chờ admin xác nhận mới xem được trang =====
 alter table ho_so add column if not exists status text not null default 'pending'
   check (status in ('pending', 'approved', 'rejected'));
+-- Lý do khi admin từ chối. Khách chỉ thấy đây là admin từ chối (và lý do nếu có),
+-- không có cột nào lưu admin nào đã làm, nên không lộ thông tin admin.
+alter table ho_so add column if not exists reject_reason text;
 
 -- Chặn ở tầng cơ sở dữ liệu, không chỉ ở giao diện: ai không phải admin thì hồ sơ
--- mới tạo luôn là 'pending', và không đổi được trạng thái của chính mình khi sửa —
--- kể cả khi họ tự gọi thẳng vào API, bỏ qua giao diện web.
+-- mới tạo luôn là 'pending', và không đổi được trạng thái/lý do của chính mình khi
+-- sửa — kể cả khi họ tự gọi thẳng vào API, bỏ qua giao diện web.
 create or replace function ho_so_bao_ve_status() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
@@ -90,8 +93,10 @@ begin
   end if;
   if tg_op = 'INSERT' then
     new.status := 'pending';
+    new.reject_reason := null;
   elsif tg_op = 'UPDATE' then
     new.status := old.status;
+    new.reject_reason := old.reject_reason;
   end if;
   return new;
 end;

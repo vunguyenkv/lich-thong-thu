@@ -38,7 +38,7 @@ const state = {
   date: TODAY, month: { y: now.getFullYear(), m: now.getMonth() + 1 },
   rem: { ...DEFAULTS, ...LS.get('ltt:nhac', {}) },
   horizon: LS.get('ltt:tam', 90),
-  flash: null,
+  flash: null, adminRows: null, adminRejecting: null,
 };
 
 // ----- Luồng đăng nhập -----
@@ -92,9 +92,10 @@ async function loadAdminQueue() {
   }
 }
 
-async function adminSetStatus(id, status) {
+async function adminSetStatus(id, status, reason) {
   try {
-    await updateProfile(id, { status });
+    await updateProfile(id, { status, reject_reason: status === 'rejected' ? (reason || null) : null });
+    state.adminRejecting = null;
     await loadAdminQueue();
   } catch (e) {
     state.flash = { target: 'admin', kind: 'err', text: `Chưa đổi được: ${e?.message || e?.code}` };
@@ -188,7 +189,8 @@ const viewRejected = () => `
   <div class="card center auth-card">
     <span class="brand-mark" aria-hidden="true">✦</span>
     <h1>Chưa thể mở hồ sơ</h1>
-    <p>Hồ sơ của bạn chưa được xác nhận. Liên hệ trực tiếp để biết thêm.</p>
+    <p>Admin đã từ chối hồ sơ này.${state.profile.reject_reason ? ` Lý do: ${esc(state.profile.reject_reason)}` : ''}</p>
+    <p class="muted">Liên hệ trực tiếp nếu cần hỗ trợ thêm.</p>
     <button data-act="signout">Đăng xuất</button>
   </div>`;
 
@@ -196,14 +198,27 @@ function viewAdmin() {
   const rows = state.adminRows || [];
   const f = state.flash?.target === 'admin' ? `<p class="msg ${state.flash.kind}">${esc(state.flash.text)}</p>` : '';
   const nhan = { pending: 'Chờ duyệt', approved: 'Đã duyệt', rejected: 'Đã từ chối' };
-  const row = (p) => `<li>
+  const row = (p) => {
+    const dangNhapLyDo = state.adminRejecting === p.id;
+    return `<li>
       <div><b>${esc(p.name)}</b> <span class="chip chip-${p.status}">${nhan[p.status] || p.status}</span>
-        <div class="note">${p.d}/${p.m}/${p.y}${p.hh != null ? ` ${pad(p.hh)}:${pad(p.mi ?? 0)}` : ''}${p.gender ? ` · ${p.gender === 'nam' ? 'Nam' : 'Nữ'}` : ''}${p.email ? ` · ${esc(p.email)}` : ''}</div></div>
-      <div class="controls">
+        <div class="note">${p.d}/${p.m}/${p.y}${p.hh != null ? ` ${pad(p.hh)}:${pad(p.mi ?? 0)}` : ''}${p.gender ? ` · ${p.gender === 'nam' ? 'Nam' : 'Nữ'}` : ''}${p.email ? ` · ${esc(p.email)}` : ''}</div>
+        ${p.status === 'rejected' && p.reject_reason ? `<div class="note">Lý do đã ghi: ${esc(p.reject_reason)}</div>` : ''}
+        ${dangNhapLyDo ? `<div class="tu-choi-ly-do">
+            <label class="sr" for="ly-do-${p.id}">Lý do từ chối</label>
+            <input id="ly-do-${p.id}" placeholder="Lý do (không bắt buộc, khách sẽ thấy)" autocomplete="off">
+            <div class="controls">
+              <button class="danger" data-act="xac-nhan-tuchoi" data-id="${p.id}">Xác nhận từ chối</button>
+              <button data-act="huy-tuchoi">Huỷ</button>
+            </div>
+          </div>` : ''}
+      </div>
+      ${dangNhapLyDo ? '' : `<div class="controls">
         <button data-act="duyet" data-id="${p.id}">Duyệt</button>
         <button class="danger" data-act="tuchoi" data-id="${p.id}">Từ chối</button>
-      </div>
+      </div>`}
     </li>`;
+  };
   const pending = rows.filter((p) => p.status === 'pending');
   const rest = rows.filter((p) => p.status !== 'pending');
   return `
@@ -399,7 +414,12 @@ document.addEventListener('click', async (e) => {
   else if (act === 'back-signin') { state.phase = 'signin'; render(); }
   else if (act === 'lam-moi') await loadProfile();
   else if (act === 'duyet') await adminSetStatus(el.dataset.id, 'approved');
-  else if (act === 'tuchoi') await adminSetStatus(el.dataset.id, 'rejected');
+  else if (act === 'tuchoi') { state.adminRejecting = el.dataset.id; render(); $('#ly-do-' + el.dataset.id)?.focus(); }
+  else if (act === 'huy-tuchoi') { state.adminRejecting = null; render(); }
+  else if (act === 'xac-nhan-tuchoi') {
+    const reason = $('#ly-do-' + el.dataset.id)?.value.trim();
+    await adminSetStatus(el.dataset.id, 'rejected', reason);
+  }
 });
 
 document.addEventListener('change', (e) => {

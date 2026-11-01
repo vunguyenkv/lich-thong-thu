@@ -115,6 +115,8 @@ button.danger { color: var(--son); border-color: var(--son); }
 .admin-list li:first-child { border-top: 0; }
 .admin-list .controls { flex-shrink: 0; }
 .fold summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-weight: 600; }
+.tu-choi-ly-do { display: grid; gap: 8px; margin-top: 10px; max-width: 420px; }
+.tu-choi-ly-do input { width: 100%; }
 
 @media (max-width: 480px) {
   .bar { flex-wrap: wrap; } .who { order: 2; margin-left: 0; }
