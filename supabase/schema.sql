@@ -12,15 +12,11 @@ create table if not exists admins (
 insert into admins (email) values ('vunguyen.kv@gmail.com') on conflict do nothing;
 
 alter table admins enable row level security;
-drop policy if exists "chi admin xem danh sach admin" on admins;
-create policy "chi admin xem danh sach admin" on admins for select using (
-  exists (select 1 from admins a where a.email = auth.jwt() ->> 'email')
-);
 -- Không có luật insert/update/delete cho admins qua API: muốn thêm/bớt admin phải
 -- vào Table editor hoặc SQL Editor của Supabase, không ai làm được từ trang web.
 
 -- security definer: hàm chạy với quyền của người tạo (bỏ qua RLS của bảng admins),
--- tránh vòng lặp vô hạn khi chính sách của ho_so lại cần đọc bảng admins.
+-- tránh vòng lặp vô hạn khi chính sách lại cần đọc bảng admins.
 create or replace function is_admin() returns boolean
 language sql stable security definer set search_path = public as $$
   select exists (select 1 from admins where email = auth.jwt() ->> 'email');
@@ -32,6 +28,12 @@ language sql stable security definer set search_path = public as $$
   select is_admin();
 $$;
 grant execute on function am_i_admin() to authenticated;
+
+-- Luật select của admins dùng is_admin() (qua security definer, không tự đọc lại
+-- admins bằng RLS thường) để tránh "infinite recursion detected in policy" —
+-- bảng tự tham chiếu chính luật của nó nếu viết subquery thẳng vào đây.
+drop policy if exists "chi admin xem danh sach admin" on admins;
+create policy "chi admin xem danh sach admin" on admins for select using (is_admin());
 
 -- ===== Bảng ho_so: hồ sơ ngày sinh của từng khách =====
 -- user_id = null: admin tự thêm khi tư vấn trực tiếp, khách đó chưa đăng ký tài khoản.
