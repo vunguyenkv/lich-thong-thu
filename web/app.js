@@ -1,0 +1,359 @@
+// Trang công khai: khách tự đăng ký bằng email, tự nhập ngày giờ sinh, hệ thống tự
+// tính bát tự và hiện lá số, ngày tốt, nhắc nhở — chỉ thấy được hồ sơ của chính mình.
+// Phân quyền (ai thấy gì) nằm ở luật RLS trong supabase/schema.sql, không phải ở file này.
+
+import {
+  CAN, CHI, HANH, THU, mod, jdFromDate, jdToDate, jdFromISO, fmtDate, fmtDay, isoDate,
+  weekday, gzName, canEl, yearPillar, monthPillar, branchOfYear,
+} from './src/calendar.js';
+import { dayInfo, TRUC, TRUC_Y } from './src/day.js';
+import { computeProfile } from './src/stars.js';
+import { starIcon } from './src/star-icons.js';
+import { buildReminders, DEFAULTS } from './src/reminders.js';
+import { monthFengShui } from './src/flyingstars.js';
+import { thaiTueStatus } from './src/relations.js';
+import { dayAdvice, VERDICT } from './src/advice.js';
+import { toICS } from './src/ics.js';
+import { parseDate, parseTime, slugify } from './src/people.js';
+import { sendMagicLink, signOut, onAuthChange, amIAdmin, getMyProfile, insertProfile } from './supabase.js';
+
+const $ = (s) => document.querySelector(s);
+const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const pad = (n) => String(n).padStart(2, '0');
+const LS = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* bộ nhớ trình duyệt bị chặn */ } },
+};
+
+const now = new Date();
+const TODAY = jdFromDate(now.getDate(), now.getMonth() + 1, now.getFullYear());
+const TABS = ['homnay', 'nhacnho', 'lich', 'laso'];
+const DOW = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+const HORIZONS = { 30: '30 ngày tới', 90: '3 tháng tới', 365: '1 năm tới' };
+
+const state = {
+  phase: 'loading',   // loading | signin | sent | onboarding | app
+  tab: TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'homnay',
+  user: null, profile: null, profileCalc: null, isAdmin: false,
+  date: TODAY, month: { y: now.getFullYear(), m: now.getMonth() + 1 },
+  rem: { ...DEFAULTS, ...LS.get('ltt:nhac', {}) },
+  horizon: LS.get('ltt:tam', 90),
+  flash: null,
+};
+
+// ----- Luồng đăng nhập -----
+async function init() {
+  render();
+  onAuthChange(async (user) => {
+    state.user = user;
+    if (!user) { state.phase = 'signin'; render(); return; }
+    await loadProfile();
+  });
+}
+
+async function loadProfile() {
+  state.phase = 'loading';
+  render();
+  try {
+    const [row, admin] = await Promise.all([getMyProfile(state.user.id), amIAdmin()]);
+    state.isAdmin = admin;
+    if (!row) { state.phase = 'onboarding'; render(); return; }
+    setProfile(row);
+  } catch (e) {
+    state.phase = 'signin';
+    state.flash = { target: 'signin', kind: 'err', text: `Không tải được hồ sơ: ${e?.message || e?.code}` };
+    render();
+  }
+}
+
+function setProfile(row) {
+  state.profile = row;
+  state.profileCalc = computeProfile({ name: row.name, y: row.y, m: row.m, d: row.d, hh: row.hh ?? undefined, mi: row.mi ?? undefined });
+  state.phase = 'app';
+  render();
+}
+
+// ----- Vẽ -----
+function render() {
+  document.body.dataset.phase = state.phase;
+  $('#view').innerHTML = {
+    loading: viewLoading, signin: viewSignIn, sent: viewSent, onboarding: viewOnboarding, app: viewApp,
+  }[state.phase]();
+  if (state.phase === 'app') {
+    document.querySelectorAll('.tabs a').forEach((a) => {
+      a.toggleAttribute('aria-current', a.getAttribute('href') === '#' + state.tab) && a.setAttribute('aria-current', 'page');
+    });
+    const pick = document.getElementById('pick-day');
+    if (pick) pick.value = isoDate(state.date);
+  }
+}
+
+const viewLoading = () => '<div class="card center"><p class="muted">Đang tải…</p></div>';
+
+function viewSignIn() {
+  const f = state.flash?.target === 'signin' ? `<p class="msg ${state.flash.kind}">${esc(state.flash.text)}</p>` : '';
+  return `
+  <div class="card center auth-card">
+    <span class="brand-mark" aria-hidden="true">✦</span>
+    <h1>Lịch Thông Thư</h1>
+    <p class="muted">Đăng ký bằng email, nhập ngày sinh một lần — xem ngày tốt, lá số và nhận nhắc nhở của riêng bạn.</p>
+    <form id="form-signin">
+      <label class="sr" for="f-email">Email</label>
+      <input id="f-email" type="email" required placeholder="email@vi-du.com" autocomplete="email">
+      <button class="primary" type="submit">Gửi link đăng nhập</button>
+    </form>
+    ${f}
+    <p class="note">Không cần mật khẩu. Bạn sẽ nhận một email có link, bấm vào là vào thẳng trang của mình.</p>
+  </div>`;
+}
+
+const viewSent = () => `
+  <div class="card center auth-card">
+    <span class="brand-mark" aria-hidden="true">✉️</span>
+    <h1>Kiểm tra email</h1>
+    <p>Đã gửi link đăng nhập tới <b>${esc(state.lastEmail)}</b>. Mở email đó trên chính điện thoại hoặc máy tính này và bấm vào link.</p>
+    <button data-act="back-signin">Dùng email khác</button>
+  </div>`;
+
+function viewOnboarding() {
+  const f = state.flash?.target === 'onboarding' ? `<p class="msg ${state.flash.kind}">${esc(state.flash.text)}</p>` : '';
+  return `
+  <div class="card auth-card">
+    <h1>Chào bạn mới</h1>
+    <p class="muted">Nhập tên và ngày sinh để tính 14 sao, ngày tốt và nhắc nhở của riêng bạn. Giờ sinh và giới tính không bắt buộc, nhưng có giờ sinh thì lá số chính xác hơn.</p>
+    <form id="form-onboarding" class="form-onboarding">
+      <div class="field"><label for="f-name">Họ tên</label><input id="f-name" required autocomplete="name"></div>
+      <div class="field"><label for="f-date">Ngày sinh</label><input id="f-date" placeholder="05/05/1988" inputmode="numeric" required autocomplete="off"></div>
+      <div class="field"><label for="f-time">Giờ sinh (không bắt buộc)</label><input id="f-time" placeholder="08:30" autocomplete="off"></div>
+      <div class="field"><label for="f-gender">Giới tính (không bắt buộc)</label>
+        <select id="f-gender"><option value="">Chưa rõ</option><option value="nam">Nam</option><option value="nu">Nữ</option></select>
+      </div>
+      <button class="primary" type="submit">Xem lá số của tôi</button>
+    </form>
+    ${f}
+  </div>`;
+}
+
+function viewApp() {
+  const person = state.profile, profile = state.profileCalc;
+  const body = { homnay: viewHomNay, nhacnho: viewNhacNho, lich: viewLich, laso: viewLaSo }[state.tab](person, profile);
+  return `
+  <header class="bar">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">✦</span><b>Lịch Thông Thư</b></div>
+    <nav class="tabs" aria-label="Mục">
+      <a href="#homnay">Hôm nay</a><a href="#nhacnho">Nhắc nhở</a><a href="#lich">Lịch tháng</a><a href="#laso">Lá số</a>
+    </nav>
+    <div class="who"><span>${esc(person.name)}</span><button data-act="signout">Đăng xuất</button></div>
+  </header>
+  <main>${body}</main>`;
+}
+
+function verdictReason(a) {
+  const names = (list) => list.map((s) => s.name).join(', ');
+  const trucText = `Trực ${TRUC[a.info.truc]}${a.info.trucTot ? ' (trực tốt)' : ''}: ${TRUC_Y[a.info.truc]}.`;
+  if (a.verdict === 'xau') return 'Nguyệt phá: chi ngày xung chi tháng.';
+  if (a.verdict === 'toiUu') return `${names(a.stars.filter((s) => s.opt))} trùng cả can lẫn chi với lá số. ${trucText}`;
+  if (a.verdict === 'canThan') return `Ngày xung với bạn hoặc xung năm. ${trucText}`;
+  return trucText + (a.stars.length ? ` Có sao ${names(a.stars)}.` : '');
+}
+
+function viewHomNay(person, profile) {
+  const a = dayAdvice(profile, state.date), info = a.info, L = info.lunar;
+  const fs = monthFengShui(info.year, info.monthBranch);
+  const mName = gzName(monthPillar(info.year, info.monthBranch));
+  const upcoming = buildReminders(profile, state.date + 1, state.date + 14, state.rem).slice(0, 6);
+  return `
+  <section class="card">
+    <div class="day-nav">
+      <button data-act="day" data-d="-1" aria-label="Ngày trước">‹</button>
+      <label class="sr" for="pick-day">Chọn ngày</label><input type="date" id="pick-day">
+      <button data-act="day" data-d="1" aria-label="Ngày sau">›</button>
+      ${state.date !== TODAY ? '<button data-act="today">Hôm nay</button>' : ''}
+    </div>
+    <h1>${THU[weekday(state.date)]} ${fmtDate(state.date)}</h1>
+    <p class="muted">Âm lịch ${L.day}/${L.month}${L.leap ? ' nhuận' : ''} · ngày ${gzName(info.di)} · tháng ${mName} · trực <span class="${info.trucTot ? 'good' : ''}">${TRUC[info.truc]}</span></p>
+    <div class="verdict v-${a.verdict}"><b>${VERDICT[a.verdict]}</b><span class="muted">${esc(verdictReason(a))}</span></div>
+  </section>
+  <section class="card">
+    <h2>Nên làm</h2>
+    ${a.doList.length
+      ? `<ul class="plain">${a.doList.map((st) => `<li><span class="star-name${st.opt ? ' opt' : ''}">${starIcon(st.key)}${st.name}${st.opt ? ' ★ tối ưu' : ''}</span><span>Hợp ${esc(st.use)}.</span></li>`).join('')}</ul>`
+      : `<p class="muted">${info.nguyetPha ? 'Hôm nay không nên khởi sự việc lớn.' : 'Không có sao cá nhân hôm nay. Việc thường ngày vẫn làm bình thường.'}</p>`}
+    <h2>Nên tránh</h2>
+    ${a.avoid.length ? `<ul class="plain">${a.avoid.map((t) => `<li class="warn">${esc(t)}</li>`).join('')}</ul>` : '<p class="muted">Không có cảnh báo riêng cho bạn.</p>'}
+  </section>
+  <section class="card">
+    <h2>Trong nhà, tháng ${mName}</h2>
+    <p>${fs.tot.length ? `<b class="good">Khu vực tốt:</b> ${fs.tot.map((p) => p.name).join(', ')}.` : ''} ${fs.tranh.length ? `<b class="warn">Khu vực nên tránh:</b> ${fs.tranh.map((p) => p.name).join(', ')}.` : ''}</p>
+    <p class="note">Xếp theo phi tinh năm và tháng, khớp lịch in 2026.</p>
+  </section>
+  <section class="card">
+    <h2>Sắp tới</h2>
+    ${upcoming.length
+      ? `<ul class="plain upcoming">${upcoming.map((e) => `<li><span class="when">${fmtDay(e.jdn)}</span><span>${esc(e.title)}</span></li>`).join('')}</ul>`
+      : '<p class="muted">Không có nhắc nhở trong 2 tuần tới.</p>'}
+    <p><a href="#nhacnho">Xem tất cả nhắc nhở</a></p>
+  </section>`;
+}
+
+function viewNhacNho(person, profile) {
+  const o = state.rem, days = Number(state.horizon);
+  const events = buildReminders(profile, TODAY, TODAY + days - 1, o);
+  const perWeek = (events.length / (days / 7)).toFixed(1).replace('.', ',');
+  const toggle = (key, label) => {
+    const on = key === 'leadDays' ? o.leadDays > 0 : o[key];
+    return `<label for="t-${key}"><input type="checkbox" id="t-${key}" data-toggle="${key}"${on ? ' checked' : ''}> ${label}</label>`;
+  };
+  let list = '', lastKey = '';
+  for (const e of events) {
+    const { m, y } = jdToDate(e.jdn), key = `${m}/${y}`;
+    if (key !== lastKey) { list += `<h3>Tháng ${key}</h3>`; lastKey = key; }
+    list += `<details class="t-${e.kinds[0]}"><summary><span class="when">${DOW[weekday(e.jdn)]} ${fmtDay(e.jdn)}</span><span class="ttl">${esc(e.title)}</span></summary><pre>${esc(e.description)}</pre></details>`;
+  }
+  const flash = state.flash?.target === 'dl' ? `<p class="msg ${state.flash.kind}">${esc(state.flash.text)}</p>` : '';
+  return `
+  <section class="card">
+    <h2>Nhắc nhở của ${esc(person.name)}</h2>
+    <p class="muted">Mỗi tin là một sự kiện lúc 7h sáng trong lịch điện thoại. Nhiều chuyện cùng ngày gộp thành một tin.</p>
+    <div class="controls">
+      ${toggle('optimal', 'Ngày tối ưu')} ${toggle('leadDays', 'Báo trước 3 ngày')} ${toggle('badDays', 'Ngày xấu')} ${toggle('monthStart', 'Đầu tháng, đầu năm')}
+      <label for="sel-horizon">Xem<select id="sel-horizon">${Object.entries(HORIZONS).map(([k, v]) => `<option value="${k}"${Number(k) === days ? ' selected' : ''}>${v}</option>`).join('')}</select></label>
+    </div>
+    <p><b class="num">${events.length}</b> tin trong ${HORIZONS[days]}, khoảng <b class="num">${perWeek}</b> tin mỗi tuần.</p>
+    <div class="controls">
+      <button class="primary" data-act="download">Tải file lịch đến hết ${now.getFullYear() + 1}</button>
+      ${flash}
+    </div>
+    <p class="note">File .ics mở được bằng Lịch trên iPhone và Google Lịch trên Android: mở file, ứng dụng lịch sẽ hỏi có thêm vào không.</p>
+  </section>
+  <section class="card events">${list || '<p class="muted">Không có nhắc nhở trong khoảng này.</p>'}</section>`;
+}
+
+function viewLich(person, profile) {
+  const { y, m } = state.month;
+  const first = jdFromDate(1, m, y), days = jdFromDate(1, m === 12 ? 1 : m + 1, m === 12 ? y + 1 : y) - first;
+  const lead = mod(first, 7);
+  let cells = DOW.map((w, i) => `<div class="dow${i === 6 ? ' sun' : ''}">${w}</div>`).join('');
+  for (let i = 0; i < lead; i++) cells += '<div class="cell blank"></div>';
+  for (let i = 0; i < days; i++) {
+    const j = first + i, a = dayAdvice(profile, j), info = a.info, L = info.lunar;
+    const flag = info.nguyetPha ? '<span class="flag pha">Nguyệt phá</span>' : info.tuePha ? '<span class="flag">Tuế phá</span>' : '';
+    const cls = `cell${weekday(j) === 6 ? ' sun' : ''}${j === TODAY ? ' today' : ''}${a.verdict === 'toiUu' ? ' has-opt' : ''}${info.nguyetPha ? ' pha' : ''}`;
+    cells += `<button class="${cls}" data-act="goto" data-j="${j}" aria-label="Xem ngày ${fmtDate(j)}">
+      <span class="d"><span class="dn num">${i + 1}</span><span class="lun num">${L.day === 1 ? `${L.day}/${L.month}` : L.day}</span></span>
+      <span class="meta"><span class="${info.trucTot ? 'good' : ''}">${TRUC[info.truc]}</span></span>${flag}</button>`;
+  }
+  for (let i = 0; i < (7 - ((lead + days) % 7)) % 7; i++) cells += '<div class="cell blank"></div>';
+  return `
+  <section class="card">
+    <div class="day-nav">
+      <button data-act="month" data-d="-1" aria-label="Tháng trước">‹</button><h2>Tháng ${m}/${y}</h2>
+      <button data-act="month" data-d="1" aria-label="Tháng sau">›</button>
+      ${y !== now.getFullYear() || m !== now.getMonth() + 1 ? '<button data-act="this-month">Tháng này</button>' : ''}
+    </div>
+  </section>
+  <div class="cal"><div class="cal-grid">${cells}</div>
+    <div class="cal-legend"><span><span class="good">Trực đỏ</span>: ngày tốt nền</span><span><span class="flag pha">Nguyệt phá</span>: nên bỏ qua</span><span>Ô vàng: ngày tối ưu</span></div>
+  </div>`;
+}
+
+function viewLaSo(person, profile) {
+  const L = profile.lunar, yNow = dayInfo(TODAY).year;
+  const tt = (y) => { const s = thaiTueStatus(profile.tuoi, branchOfYear(y)); return s.length ? s.join(', ') : 'không phạm Thái Tuế'; };
+  const pillars = [['Năm', profile.year], ['Tháng', profile.month], ['Ngày', profile.day, 'day'], ['Giờ', person.hh != null ? profile.hour : null]];
+  const starCell = (st) => `<div class="star-cell${st.stem !== null ? ' opt' : ''}"><span class="nm">${st.name}</span><span class="mn">${st.mean}</span><span class="star-art">${starIcon(st.key)}</span><span class="val">${st.stem === null ? `<span>Tất cả</span><strong>${st.branches.map((b) => CHI[b]).join(', ')}</strong>` : `<span>${CAN[st.stem]}</span><strong>${CHI[st.branches[0]]}</strong>`}</span></div>`;
+  return `
+  <section class="reference-sheet" aria-labelledby="sheet-person">
+    <header class="sheet-header"><div><span class="eyebrow">NGÀY TỐT THEO LÁ SỐ CỦA BẠN</span><h2 id="sheet-person">${esc(person.name)} <span>(${person.d}/${person.m}/${person.y})</span></h2></div></header>
+    <div class="mobile-master">Nhật chủ <b>${gzName(profile.day)}</b></div>
+    <div class="sheet-scroll"><div class="star-table">
+      <div class="master-cell master-label">NHẬT<br>CHỦ</div>
+      ${profile.stars.slice(0, 7).map(starCell).join('')}
+      <div class="master-cell master-value"><span>${CAN[profile.s]}</span><strong>${CHI[profile.b]}</strong></div>
+      ${profile.stars.slice(7).map(starCell).join('')}
+    </div></div>
+  </section>
+  <section class="card">
+    <h2>Thông tin lá số</h2>
+    <p class="muted">Sinh ${person.d}/${person.m}/${person.y}${person.hh != null ? ` lúc ${pad(person.hh)}:${pad(person.mi ?? 0)}` : ''} · âm lịch ${L.day}/${L.month} năm ${gzName(yearPillar(L.year))} · tuổi ${CHI[profile.tuoi]}</p>
+    <div class="pillars">${pillars.map(([lbl, i, cls]) => `<div class="${cls ?? ''}"><span class="lbl">${lbl}</span><b>${i === null ? '—' : gzName(i)}</b></div>`).join('')}</div>
+    <p>Nhật chủ <b>${CAN[profile.s]} ${HANH[canEl(profile.s)]}</b>.</p>
+    <h3>Thái Tuế</h3><p>Năm ${gzName(yearPillar(yNow))}: ${tt(yNow)}. Năm ${gzName(yearPillar(yNow + 1))}: ${tt(yNow + 1)}.</p>
+  </section>`;
+}
+
+// ----- Hành động -----
+function flash(target, text, kind) { state.flash = { target, text, kind }; render(); }
+
+async function download() {
+  const { profile: person, profileCalc: profile } = state;
+  const events = buildReminders(profile, TODAY, jdFromDate(31, 12, now.getFullYear() + 1), state.rem);
+  const id = `${slugify(person.name)}-${person.y}${pad(person.m)}${pad(person.d)}`;
+  const ics = toICS({ calName: `Nhắc phong thủy · ${person.name}`, uidPrefix: id, events });
+  const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = `${id}.ics`; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  flash('dl', `Đã tải ${id}.ics (${events.length} tin nhắc).`, 'ok');
+}
+
+document.addEventListener('click', async (e) => {
+  const el = e.target.closest('[data-act]');
+  if (!el) return;
+  const act = el.dataset.act;
+  if (act === 'day') { state.date += Number(el.dataset.d); render(); }
+  else if (act === 'today') { state.date = TODAY; render(); }
+  else if (act === 'month') {
+    const t = state.month.y * 12 + state.month.m - 1 + Number(el.dataset.d);
+    state.month = { y: Math.floor(t / 12), m: mod(t, 12) + 1 };
+    render();
+  } else if (act === 'this-month') { state.month = { y: now.getFullYear(), m: now.getMonth() + 1 }; render(); }
+  else if (act === 'goto') { state.date = Number(el.dataset.j); location.hash = 'homnay'; state.tab = 'homnay'; render(); }
+  else if (act === 'download') await download();
+  else if (act === 'signout') await signOut();
+  else if (act === 'back-signin') { state.phase = 'signin'; render(); }
+});
+
+document.addEventListener('change', (e) => {
+  const el = e.target;
+  if (el.id === 'pick-day' && el.value) { state.date = jdFromISO(el.value); render(); }
+  else if (el.dataset.toggle) {
+    const k = el.dataset.toggle;
+    state.rem[k] = k === 'leadDays' ? (el.checked ? 3 : 0) : el.checked;
+    LS.set('ltt:nhac', { optimal: state.rem.optimal, leadDays: state.rem.leadDays, badDays: state.rem.badDays, monthStart: state.rem.monthStart });
+    render();
+  } else if (el.id === 'sel-horizon') { state.horizon = Number(el.value); LS.set('ltt:tam', state.horizon); render(); }
+});
+
+document.addEventListener('submit', async (e) => {
+  if (e.target.id === 'form-signin') {
+    e.preventDefault();
+    const email = $('#f-email').value.trim();
+    try { await sendMagicLink(email); state.lastEmail = email; state.phase = 'sent'; render(); }
+    catch (err) { flash('signin', `Chưa gửi được: ${err?.message || err?.code}`, 'err'); }
+    return;
+  }
+  if (e.target.id === 'form-onboarding') {
+    e.preventDefault();
+    const name = $('#f-name').value.trim(), dateText = $('#f-date').value.trim(), timeText = $('#f-time').value.trim();
+    const date = parseDate(dateText), time = timeText ? parseTime(timeText) : null;
+    if (!name) return flash('onboarding', 'Nhập họ tên.', 'err');
+    if (!date) return flash('onboarding', 'Ngày sinh chưa đúng. Dùng dạng 05/05/1988.', 'err');
+    if (timeText && !time) return flash('onboarding', 'Giờ sinh chưa đúng. Dùng dạng 08:30, hoặc để trống.', 'err');
+    try {
+      const row = await insertProfile({
+        user_id: state.user.id, name, ...date, hh: time?.hh ?? null, mi: time?.mi ?? null,
+        gender: $('#f-gender').value || null, email: state.user.email,
+      });
+      setProfile(row);
+    } catch (err) { flash('onboarding', `Chưa lưu được: ${err?.message || err?.code}`, 'err'); }
+  }
+});
+
+window.addEventListener('hashchange', () => {
+  const t = location.hash.slice(1);
+  if (!TABS.includes(t) || state.phase !== 'app') return;
+  state.tab = t; state.flash = null; render(); window.scrollTo(0, 0);
+});
+
+init();

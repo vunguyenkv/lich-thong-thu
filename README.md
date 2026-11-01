@@ -54,3 +54,7 @@ Chạy kiểm tra: `npm test`
 - `src/ics.js`: xuất file lịch
 - `src/people.js`: đọc danh sách người
 - `scripts/make-ics.js`: lệnh tạo file cho cả danh sách
+- `web/`: trang công khai, khách tự đăng ký bằng email, tự nhập ngày giờ sinh, chỉ
+  thấy hồ sơ của chính mình (Supabase + Vercel). Xem [DEPLOY.md](DEPLOY.md) để đưa
+  lên mạng với tên miền riêng. Khác với `index.html` ở gốc dự án — đó là công cụ
+  tư vấn riêng cho bạn, chạy trong Claude, quản lý mọi hồ sơ khách.
