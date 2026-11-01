@@ -19,7 +19,7 @@ Vercel (đăng trang lên mạng, gắn tên miền riêng).
    - **Project URL**
    - **anon public** key (khoá dài, không phải "service_role")
 6. Mở [`web/config.js`](web/config.js), điền hai giá trị trên vào `SUPABASE_URL` và `SUPABASE_ANON_KEY`.
-7. Vào **Authentication** → **URL Configuration**: điền **Site URL** là tên miền bạn sẽ dùng (vd `https://ten-mien-cua-ban.com`). Nếu chưa gắn tên miền, tạm để trống hoặc điền sau ở bước 4.
+7. Vào **Authentication** → **URL Configuration**: điền **Site URL** là `https://calender.grus.io.vn`, và thêm đúng địa chỉ này vào **Redirect URLs** luôn.
 
 ## 2. Đưa code lên GitHub
 
@@ -39,14 +39,17 @@ git push -u origin main
 3. Ở bước cấu hình:
    - **Root Directory**: bấm Edit, chọn thư mục `web`.
    - **Framework Preset**: Other (trang tĩnh, không cần build).
-4. Bấm **Deploy**. Xong sẽ có link dạng `https://lich-thong-thu-xxxx.vercel.app` — mở thử, bấm "Gửi link đăng nhập" để kiểm tra luồng thật.
+4. Bấm **Deploy**. Xong sẽ có link dạng `https://lich-thong-thu-xxxx.vercel.app` — mở thử, bấm "Gửi link đăng nhập" để kiểm tra luồng thật, trước khi gắn subdomain ở bước 4 dưới đây.
 
-## 4. Gắn tên miền riêng
+## 4. Gắn subdomain calender.grus.io.vn
 
-1. Trong project trên Vercel: **Settings** → **Domains** → **Add** → nhập tên miền của bạn.
-2. Vercel chỉ cách thêm bản ghi DNS (thường là một bản ghi `A` hoặc `CNAME`) — vào nơi bạn mua tên miền (iNET, Mắt Bão, Namecheap...), mục quản lý DNS, thêm đúng bản ghi Vercel đưa ra.
-3. Đợi DNS cập nhật (vài phút đến vài giờ), Vercel tự cấp HTTPS.
-4. Quay lại Supabase → **Authentication** → **URL Configuration**, sửa **Site URL** thành tên miền thật, thêm nó vào **Redirect URLs** luôn — nếu không, link đăng nhập gửi về email sẽ trỏ sai chỗ.
+Dùng subdomain, không phải domain gốc `grus.io.vn` — để dành domain gốc cho trang
+giới thiệu hoặc email thương hiệu sau này, không bị vướng vào nhau.
+
+1. Trong project trên Vercel: **Settings** → **Domains** → **Add** → nhập `calender.grus.io.vn`.
+2. Vercel chỉ ra một bản ghi `CNAME` (thường là `cname.vercel-dns.com`) — vào nơi quản lý DNS của `grus.io.vn`, thêm bản ghi `CNAME` cho `calender` trỏ đúng giá trị Vercel đưa ra (sao chép chính xác, đừng gõ lại tay).
+3. Đợi DNS cập nhật (vài phút đến vài giờ), Vercel tự cấp HTTPS cho subdomain.
+4. Nếu bước 1 (Supabase) đã điền `https://calender.grus.io.vn` vào Site URL/Redirect URLs rồi thì không cần làm lại; nếu chưa, quay lại làm ở đó.
 
 ## Sau khi đổi công thức tính toán
 
