@@ -101,6 +101,20 @@ ul.plain { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .form-onboarding { display: grid; gap: 12px; }
 .field { display: grid; gap: 4px; }
 .field label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+.gio-phut { display: flex; align-items: center; gap: 6px; }
+.gio-phut select { flex: 1; min-width: 0; }
+.gio-phut-sep { color: var(--muted); font-weight: 700; }
+
+button.danger { color: var(--son); border-color: var(--son); }
+.chip { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; text-transform: uppercase; letter-spacing: .03em; }
+.chip-pending { background: var(--gold-soft); color: var(--gold); }
+.chip-approved { background: var(--positive-soft); color: var(--positive); }
+.chip-rejected { background: var(--son-soft); color: var(--son); }
+.admin-list { margin: 0; padding: 0; list-style: none; }
+.admin-list li { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px 16px; padding: 12px 0; border-top: 1px solid var(--line); }
+.admin-list li:first-child { border-top: 0; }
+.admin-list .controls { flex-shrink: 0; }
+.fold summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-weight: 600; }
 
 @media (max-width: 480px) {
   .bar { flex-wrap: wrap; } .who { order: 2; margin-left: 0; }

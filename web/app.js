@@ -14,8 +14,8 @@ import { monthFengShui } from './src/flyingstars.js';
 import { thaiTueStatus } from './src/relations.js';
 import { dayAdvice, VERDICT } from './src/advice.js';
 import { toICS } from './src/ics.js';
-import { parseDate, parseTime, slugify } from './src/people.js';
-import { sendMagicLink, signOut, onAuthChange, amIAdmin, getMyProfile, insertProfile } from './supabase.js';
+import { parseDate, slugify } from './src/people.js';
+import { sendMagicLink, signOut, onAuthChange, amIAdmin, getMyProfile, insertProfile, updateProfile, listProfiles } from './supabase.js';
 
 const $ = (s) => document.querySelector(s);
 const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -55,9 +55,15 @@ async function loadProfile() {
   state.phase = 'loading';
   render();
   try {
-    const [row, admin] = await Promise.all([getMyProfile(state.user.id), amIAdmin()]);
+    const admin = await amIAdmin();
     state.isAdmin = admin;
+    // Admin luôn vào thẳng trang duyệt hồ sơ, không qua luồng đăng ký/chờ duyệt của khách.
+    // Muốn xem lịch của riêng mình, admin vẫn dùng công cụ tư vấn trong Claude như trước.
+    if (admin) { await loadAdminQueue(); return; }
+    const row = await getMyProfile(state.user.id);
     if (!row) { state.phase = 'onboarding'; render(); return; }
+    if (row.status === 'pending') { state.profile = row; state.phase = 'pending'; render(); return; }
+    if (row.status === 'rejected') { state.profile = row; state.phase = 'rejected'; render(); return; }
     setProfile(row);
   } catch (e) {
     state.phase = 'signin';
@@ -73,11 +79,35 @@ function setProfile(row) {
   render();
 }
 
+// ----- Quản trị: duyệt hồ sơ khách tự đăng ký -----
+async function loadAdminQueue() {
+  try {
+    state.adminRows = await listProfiles();
+    state.phase = 'admin';
+    render();
+  } catch (e) {
+    state.phase = 'signin';
+    state.flash = { target: 'signin', kind: 'err', text: `Không tải được danh sách: ${e?.message || e?.code}` };
+    render();
+  }
+}
+
+async function adminSetStatus(id, status) {
+  try {
+    await updateProfile(id, { status });
+    await loadAdminQueue();
+  } catch (e) {
+    state.flash = { target: 'admin', kind: 'err', text: `Chưa đổi được: ${e?.message || e?.code}` };
+    render();
+  }
+}
+
 // ----- Vẽ -----
 function render() {
   document.body.dataset.phase = state.phase;
   $('#view').innerHTML = {
-    loading: viewLoading, signin: viewSignIn, sent: viewSent, onboarding: viewOnboarding, app: viewApp,
+    loading: viewLoading, signin: viewSignIn, sent: viewSent, onboarding: viewOnboarding,
+    pending: viewPending, rejected: viewRejected, admin: viewAdmin, app: viewApp,
   }[state.phase]();
   if (state.phase === 'app') {
     document.querySelectorAll('.tabs a').forEach((a) => {
@@ -117,14 +147,23 @@ const viewSent = () => `
 
 function viewOnboarding() {
   const f = state.flash?.target === 'onboarding' ? `<p class="msg ${state.flash.kind}">${esc(state.flash.text)}</p>` : '';
+  const opt = (n) => `<option value="${n}">${pad(n)}</option>`;
+  const hourOpts = Array.from({ length: 24 }, (_, h) => opt(h)).join('');
+  const minOpts = Array.from({ length: 60 }, (_, m) => opt(m)).join('');
   return `
   <div class="card auth-card">
     <h1>Chào bạn mới</h1>
     <p class="muted">Nhập tên và ngày sinh để tính 14 sao, ngày tốt và nhắc nhở của riêng bạn. Giờ sinh và giới tính không bắt buộc, nhưng có giờ sinh thì lá số chính xác hơn.</p>
     <form id="form-onboarding" class="form-onboarding">
       <div class="field"><label for="f-name">Họ tên</label><input id="f-name" required autocomplete="name"></div>
-      <div class="field"><label for="f-date">Ngày sinh</label><input id="f-date" placeholder="05/05/1988" inputmode="numeric" required autocomplete="off"></div>
-      <div class="field"><label for="f-time">Giờ sinh (không bắt buộc)</label><input id="f-time" placeholder="08:30" autocomplete="off"></div>
+      <div class="field"><label for="f-date">Ngày sinh</label><input id="f-date" placeholder="01/01/2000" inputmode="numeric" required autocomplete="off"></div>
+      <div class="field"><label>Giờ sinh (không bắt buộc)</label>
+        <div class="gio-phut">
+          <select id="f-hh" aria-label="Giờ sinh — giờ"><option value="">Giờ</option>${hourOpts}</select>
+          <span class="gio-phut-sep">:</span>
+          <select id="f-mi" aria-label="Giờ sinh — phút"><option value="">Phút</option>${minOpts}</select>
+        </div>
+      </div>
       <div class="field"><label for="f-gender">Giới tính (không bắt buộc)</label>
         <select id="f-gender"><option value="">Chưa rõ</option><option value="nam">Nam</option><option value="nu">Nữ</option></select>
       </div>
@@ -132,6 +171,52 @@ function viewOnboarding() {
     </form>
     ${f}
   </div>`;
+}
+
+const viewPending = () => `
+  <div class="card center auth-card">
+    <span class="brand-mark" aria-hidden="true">⏳</span>
+    <h1>Đang chờ duyệt</h1>
+    <p>Hồ sơ của <b>${esc(state.profile.name)}</b> đã gửi, đang chờ xác nhận. Quay lại sau hoặc bấm tải lại bên dưới.</p>
+    <div class="controls" style="justify-content:center">
+      <button data-act="lam-moi">Tải lại</button>
+      <button data-act="signout">Đăng xuất</button>
+    </div>
+  </div>`;
+
+const viewRejected = () => `
+  <div class="card center auth-card">
+    <span class="brand-mark" aria-hidden="true">✦</span>
+    <h1>Chưa thể mở hồ sơ</h1>
+    <p>Hồ sơ của bạn chưa được xác nhận. Liên hệ trực tiếp để biết thêm.</p>
+    <button data-act="signout">Đăng xuất</button>
+  </div>`;
+
+function viewAdmin() {
+  const rows = state.adminRows || [];
+  const f = state.flash?.target === 'admin' ? `<p class="msg ${state.flash.kind}">${esc(state.flash.text)}</p>` : '';
+  const nhan = { pending: 'Chờ duyệt', approved: 'Đã duyệt', rejected: 'Đã từ chối' };
+  const row = (p) => `<li>
+      <div><b>${esc(p.name)}</b> <span class="chip chip-${p.status}">${nhan[p.status] || p.status}</span>
+        <div class="note">${p.d}/${p.m}/${p.y}${p.hh != null ? ` ${pad(p.hh)}:${pad(p.mi ?? 0)}` : ''}${p.gender ? ` · ${p.gender === 'nam' ? 'Nam' : 'Nữ'}` : ''}${p.email ? ` · ${esc(p.email)}` : ''}</div></div>
+      <div class="controls">
+        <button data-act="duyet" data-id="${p.id}">Duyệt</button>
+        <button class="danger" data-act="tuchoi" data-id="${p.id}">Từ chối</button>
+      </div>
+    </li>`;
+  const pending = rows.filter((p) => p.status === 'pending');
+  const rest = rows.filter((p) => p.status !== 'pending');
+  return `
+  <header class="bar"><div class="brand"><span class="brand-mark" aria-hidden="true">✦</span><b>Lịch Thông Thư</b></div>
+    <div class="who"><span>Quản trị</span><button data-act="signout">Đăng xuất</button></div></header>
+  <main>
+    <section class="card">
+      <h2>Chờ duyệt (${pending.length})</h2>
+      ${f}
+      ${pending.length ? `<ul class="plain admin-list">${pending.map(row).join('')}</ul>` : '<p class="muted">Không có hồ sơ chờ duyệt.</p>'}
+    </section>
+    ${rest.length ? `<details class="fold"><summary>Hồ sơ khác (${rest.length})</summary><ul class="plain admin-list">${rest.map(row).join('')}</ul></details>` : ''}
+  </main>`;
 }
 
 function viewApp() {
@@ -312,6 +397,9 @@ document.addEventListener('click', async (e) => {
   else if (act === 'download') await download();
   else if (act === 'signout') await signOut();
   else if (act === 'back-signin') { state.phase = 'signin'; render(); }
+  else if (act === 'lam-moi') await loadProfile();
+  else if (act === 'duyet') await adminSetStatus(el.dataset.id, 'approved');
+  else if (act === 'tuchoi') await adminSetStatus(el.dataset.id, 'rejected');
 });
 
 document.addEventListener('change', (e) => {
@@ -335,17 +423,19 @@ document.addEventListener('submit', async (e) => {
   }
   if (e.target.id === 'form-onboarding') {
     e.preventDefault();
-    const name = $('#f-name').value.trim(), dateText = $('#f-date').value.trim(), timeText = $('#f-time').value.trim();
-    const date = parseDate(dateText), time = timeText ? parseTime(timeText) : null;
+    const name = $('#f-name').value.trim(), dateText = $('#f-date').value.trim();
+    const hhText = $('#f-hh').value, miText = $('#f-mi').value;
+    const date = parseDate(dateText);
     if (!name) return flash('onboarding', 'Nhập họ tên.', 'err');
-    if (!date) return flash('onboarding', 'Ngày sinh chưa đúng. Dùng dạng 05/05/1988.', 'err');
-    if (timeText && !time) return flash('onboarding', 'Giờ sinh chưa đúng. Dùng dạng 08:30, hoặc để trống.', 'err');
+    if (!date) return flash('onboarding', 'Ngày sinh chưa đúng. Dùng dạng 01/01/2000.', 'err');
+    if (Boolean(hhText) !== Boolean(miText)) return flash('onboarding', 'Chọn đủ cả giờ và phút, hoặc để trống cả hai.', 'err');
     try {
       const row = await insertProfile({
-        user_id: state.user.id, name, ...date, hh: time?.hh ?? null, mi: time?.mi ?? null,
+        user_id: state.user.id, name, ...date, hh: hhText ? Number(hhText) : null, mi: miText ? Number(miText) : null,
         gender: $('#f-gender').value || null, email: state.user.email,
       });
-      setProfile(row);
+      // Hồ sơ mới luôn 'pending' (cơ sở dữ liệu tự ép, xem supabase/schema.sql) nên không gọi setProfile() thẳng.
+      await loadProfile();
     } catch (err) { flash('onboarding', `Chưa lưu được: ${err?.message || err?.code}`, 'err'); }
   }
 });

@@ -75,6 +75,32 @@ create policy "khach sua ho so cua minh" on ho_so for update using (auth.uid() =
 drop policy if exists "khach xoa ho so cua minh" on ho_so;
 create policy "khach xoa ho so cua minh" on ho_so for delete using (auth.uid() = user_id);
 
+-- ===== Chờ duyệt: khách tự đăng ký xong phải chờ admin xác nhận mới xem được trang =====
+alter table ho_so add column if not exists status text not null default 'pending'
+  check (status in ('pending', 'approved', 'rejected'));
+
+-- Chặn ở tầng cơ sở dữ liệu, không chỉ ở giao diện: ai không phải admin thì hồ sơ
+-- mới tạo luôn là 'pending', và không đổi được trạng thái của chính mình khi sửa —
+-- kể cả khi họ tự gọi thẳng vào API, bỏ qua giao diện web.
+create or replace function ho_so_bao_ve_status() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if is_admin() then
+    return new;
+  end if;
+  if tg_op = 'INSERT' then
+    new.status := 'pending';
+  elsif tg_op = 'UPDATE' then
+    new.status := old.status;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists ho_so_bao_ve_status_trg on ho_so;
+create trigger ho_so_bao_ve_status_trg before insert or update on ho_so
+for each row execute function ho_so_bao_ve_status();
+
 -- Kiểm tra nhanh sau khi chạy: hai dòng dưới phải trả về true.
 -- select is_admin();  -- chạy khi đã đăng nhập bằng email admin, qua SQL Editor sẽ luôn false (không có phiên đăng nhập)
 -- select * from ho_so; -- admin thấy mọi dòng khi gọi từ trang web; người lạ chỉ thấy dòng của chính họ
