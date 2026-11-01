@@ -1,0 +1,255 @@
+<title>Kế hoạch Lịch Thông Thư</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alegreya:wght@700;800&family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: một sơ đồ luồng trái sang phải (hồ sơ → bộ tính toán → quy tắc nhắc → kênh), bên dưới là lộ trình 5 bước và việc cần chốt */
+:root {
+  --paper: #EEF2EF;
+  --sheet: #FFFFFF;
+  --well: #F6F8F6;
+  --ink: #1C2427;
+  --muted: #5B6966;
+  --line: #C9D3CE;
+  --son: #B3261E;
+  --ok: #23665A;      --ok-soft: #DDEDE8;
+  --std: #3B4A63;     --std-soft: #E3E8F0;
+  --wip: #94650F;     --wip-soft: #F5E8C8;
+  --add: #8A2D52;     --add-soft: #F3E0E8;
+  --f-display: "Alegreya", Georgia, serif;
+  --f-body: "Be Vietnam Pro", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #111715; --sheet: #19211F; --well: #151C1A; --ink: #E4EBE8; --muted: #98A7A2; --line: #34413D;
+    --son: #E8695E; --ok: #73B8A8; --ok-soft: #1C2F2A; --std: #9DB0D0; --std-soft: #1E2533;
+    --wip: #DDB052; --wip-soft: #382D14; --add: #E08AAE; --add-soft: #36202A; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #111715; --sheet: #19211F; --well: #151C1A; --ink: #E4EBE8; --muted: #98A7A2; --line: #34413D;
+  --son: #E8695E; --ok: #73B8A8; --ok-soft: #1C2F2A; --std: #9DB0D0; --std-soft: #1E2533;
+  --wip: #DDB052; --wip-soft: #382D14; --add: #E08AAE; --add-soft: #36202A; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--paper); color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.55; }
+.wrap {
+  max-width: 1240px; margin: 0 auto; display: grid; gap: 28px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 28px 56px;
+}
+h1, h2 { font-family: var(--f-display); margin: 0; line-height: 1.15; text-wrap: balance; }
+h1 { font-size: clamp(28px, 4.2vw, 42px); font-weight: 800; }
+h2 { font-size: 24px; font-weight: 700; }
+p { margin: 0; }
+.eyebrow { font-size: 12px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--son); }
+.lede { color: var(--muted); max-width: 70ch; }
+header { display: grid; gap: 8px; }
+.year { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 14px; }
+.year b { font-family: var(--f-display); font-size: 22px; font-variant-numeric: tabular-nums; }
+
+figure { margin: 0; background: var(--sheet); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.scroll { overflow-x: auto; }
+.diagram { display: block; width: 100%; height: auto; min-width: 980px; color: var(--muted); font-family: var(--f-body); }
+.diagram text { fill: var(--ink); font-size: 13px; }
+.diagram .colh { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; fill: var(--muted); }
+.diagram .bt { font-size: 14px; font-weight: 700; }
+.diagram .sm { font-size: 11.5px; fill: var(--muted); }
+.diagram .lab { font-size: 11px; fill: var(--muted); }
+.diagram .big { font-family: var(--f-display); font-size: 24px; font-weight: 800; }
+.diagram .need { fill: var(--son); font-weight: 600; }
+.diagram .box { fill: var(--sheet); stroke: var(--line); }
+.diagram .engine { fill: var(--well); stroke: var(--line); }
+.diagram .now { fill: var(--ok-soft); stroke: var(--ok); stroke-width: 1.5; }
+.diagram .flow { stroke: currentColor; stroke-width: 1.5; fill: none; }
+.diagram .sep { stroke: var(--line); }
+.diagram .g-ok { fill: var(--ok-soft); stroke: var(--ok); }
+.diagram .g-std { fill: var(--std-soft); stroke: var(--std); }
+.diagram .g-wip { fill: var(--wip-soft); stroke: var(--wip); stroke-dasharray: 5 4; }
+.diagram .g-add { fill: var(--add-soft); stroke: var(--add); }
+.diagram .h-ok { fill: var(--ok); font-weight: 700; }
+.diagram .h-std { fill: var(--std); font-weight: 700; }
+.diagram .h-wip { fill: var(--wip); font-weight: 700; }
+.diagram .h-add { fill: var(--add); font-weight: 700; }
+figcaption { padding: 12px 16px; border-top: 1px solid var(--line); font-size: 14px; color: var(--muted); }
+
+.cols { display: grid; grid-template-columns: 3fr 2fr; gap: 20px; align-items: start; }
+.cols > * { min-width: 0; }
+section { display: grid; gap: 12px; }
+ol.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; background: var(--sheet); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+ol.steps li { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 12px; padding: 12px 16px; border-top: 1px solid var(--line); }
+ol.steps li:first-child { border-top: 0; }
+ol.steps li.next { background: var(--ok-soft); }
+.n { font-family: var(--f-display); font-size: 24px; font-weight: 800; line-height: 1; color: var(--muted); }
+li.next .n { color: var(--ok); }
+.s-title { font-weight: 700; }
+.s-need { font-size: 13.5px; color: var(--muted); }
+.s-need .req { color: var(--son); font-weight: 600; }
+.side { font-size: 14px; color: var(--muted); padding: 0 4px; }
+ul.ask { margin: 0; padding: 14px 16px 14px 34px; background: var(--sheet); border: 1px solid var(--line); border-radius: 8px; display: grid; gap: 8px; }
+ul.ask li { padding-left: 2px; }
+ul.ask .when { color: var(--muted); font-size: 13.5px; }
+@media (max-width: 860px) { .cols { grid-template-columns: 1fr; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <span class="eyebrow">Lịch Thông Thư · ứng dụng phong thủy cá nhân</span>
+    <h1>Kế hoạch tổng quan</h1>
+    <p class="lede">Một bộ tính toán dùng chung cho mọi người và mọi năm. Nó nuôi hai thứ: nhắc nhở tự động gửi tới bạn và từng khách, và phần xem, in để tư vấn hoặc làm quà.</p>
+    <div class="year" aria-label="Ví dụ năm 2027 của Nguyễn Đình Vũ">
+      <span>Năm 2027 của bạn:</span>
+      <span><b>50</b> ngày tối ưu</span>
+      <span><b>85</b> ngày xấu</span>
+      <span><b>13</b> mốc đầu tháng, đầu năm</span>
+      <span>→ khoảng <b>3</b> tin nhắc mỗi tuần</span>
+    </div>
+  </header>
+
+  <figure>
+    <div class="scroll">
+      <svg class="diagram" viewBox="0 0 1200 630" role="img" aria-label="Lá số mỗi người đi vào bộ tính toán. Bộ quy tắc chọn ngày đáng nhắc và gửi qua lịch điện thoại, email, thông báo đẩy, Zalo. Dữ liệu từng ngày cũng đổ vào trang riêng của khách, app tư vấn và bản PDF.">
+        <defs>
+          <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+          </marker>
+        </defs>
+
+        <text class="colh" x="20" y="40">HỒ SƠ</text>
+        <text class="colh" x="250" y="40">BỘ TÍNH TOÁN · MỌI NĂM</text>
+        <text class="colh" x="630" y="40">QUY TẮC NHẮC</text>
+        <text class="colh" x="910" y="40">NHẮC NHỞ · GỬI BẠN VÀ TỪNG KHÁCH</text>
+        <text class="colh" x="910" y="392">XEM VÀ IN</text>
+
+        <!-- Hồ sơ -->
+        <rect class="box" x="20" y="262" width="160" height="166" rx="6"/>
+        <text class="bt" x="36" y="290">Bạn + từng khách</text>
+        <text x="36" y="316">Tên</text>
+        <text x="36" y="338">Ngày giờ sinh</text>
+        <text x="36" y="360">Giới tính</text>
+        <line class="sep" x1="36" y1="378" x2="164" y2="378"/>
+        <text class="sm" x="36" y="400">Nhập tay hoặc</text>
+        <text class="sm" x="36" y="416">dán từ Excel</text>
+
+        <line class="flow" x1="180" y1="345" x2="246" y2="345" marker-end="url(#arr)"/>
+        <text class="lab" x="213" y="334" text-anchor="middle">lá số</text>
+
+        <!-- Bộ tính toán -->
+        <rect class="engine" x="250" y="60" width="320" height="518" rx="8"/>
+
+        <rect class="g-ok" x="266" y="76" width="288" height="118" rx="5"/>
+        <text class="h-ok" x="282" y="100">Đã khớp lịch in</text>
+        <text x="282" y="126">Can chi, âm lịch, tiết khí</text>
+        <text x="282" y="148">12 trực, Nguyệt phá, Tuế phá</text>
+        <text x="282" y="170">14 sao cá nhân</text>
+
+        <rect class="g-std" x="266" y="206" width="288" height="88" rx="5"/>
+        <text class="h-std" x="282" y="230">Công thức chuẩn</text>
+        <text x="282" y="256">Phi tinh năm và tháng</text>
+        <text x="282" y="278">Thái Tuế, Tam Sát, Ngũ Hoàng</text>
+
+        <rect class="g-wip" x="266" y="306" width="288" height="88" rx="5"/>
+        <text class="h-wip" x="282" y="330">Đang giải mã từ ảnh</text>
+        <text x="282" y="356">Hướng Kỳ Môn mỗi ngày</text>
+        <text x="282" y="378">8 icon việc nên / tránh</text>
+
+        <rect class="g-add" x="266" y="406" width="288" height="156" rx="5"/>
+        <text class="h-add" x="282" y="430">Mình thêm (lịch in không có)</text>
+        <text x="282" y="456">Bát Trạch: hướng tốt cố định</text>
+        <text x="282" y="478">Phạm Thái Tuế theo tuổi</text>
+        <text x="282" y="500">Giờ tốt trong ngày</text>
+        <text x="282" y="522">Vận năm, vận tháng</text>
+        <text x="282" y="544">Ngày xung với người đó</text>
+
+        <line class="flow" x1="570" y1="295" x2="626" y2="295" marker-end="url(#arr)"/>
+        <text class="lab" x="598" y="284" text-anchor="middle">mỗi ngày</text>
+
+        <!-- Quy tắc nhắc -->
+        <rect class="box" x="630" y="150" width="220" height="290" rx="6"/>
+        <text class="bt" x="646" y="180">Ngày tối ưu</text>
+        <text class="sm" x="646" y="199">trước 3 ngày + 7h sáng hôm đó</text>
+        <text class="bt" x="646" y="232">Ngày xấu</text>
+        <text class="sm" x="646" y="251">Nguyệt phá, xung · 7h sáng</text>
+        <text class="bt" x="646" y="284">Đầu tháng, đầu năm</text>
+        <text class="sm" x="646" y="303">khu vực tốt/tránh, hướng năm</text>
+        <text class="bt" x="646" y="336">Trùng ngày</text>
+        <text class="sm" x="646" y="355">gộp thành 1 tin</text>
+        <line class="sep" x1="646" y1="374" x2="834" y2="374"/>
+        <text class="big" x="646" y="406">≈ 3 tin / tuần</text>
+        <text class="sm" x="646" y="426">mỗi người tự bật, tắt từng loại</text>
+
+        <!-- bus nhắc nhở -->
+        <polyline class="flow" points="850,295 880,295"/>
+        <line class="flow" x1="880" y1="90" x2="880" y2="306"/>
+        <line class="flow" x1="880" y1="90" x2="906" y2="90" marker-end="url(#arr)"/>
+        <line class="flow" x1="880" y1="162" x2="906" y2="162" marker-end="url(#arr)"/>
+        <line class="flow" x1="880" y1="234" x2="906" y2="234" marker-end="url(#arr)"/>
+        <line class="flow" x1="880" y1="306" x2="906" y2="306" marker-end="url(#arr)"/>
+
+        <rect class="now" x="910" y="60" width="270" height="60" rx="6"/>
+        <text class="bt" x="926" y="85">Lịch điện thoại (file .ics)</text>
+        <text class="sm" x="926" y="105">Bước 2 · làm ngay, không cần gì thêm</text>
+
+        <rect class="box" x="910" y="132" width="270" height="60" rx="6"/>
+        <text class="bt" x="926" y="157">Email mỗi sáng</text>
+        <text class="sm" x="926" y="177">Bước 4 · <tspan class="need">cần email của khách</tspan></text>
+
+        <rect class="box" x="910" y="204" width="270" height="60" rx="6"/>
+        <text class="bt" x="926" y="229">Thông báo đẩy</text>
+        <text class="sm" x="926" y="249">Bước 5 · <tspan class="need">cần tên miền riêng</tspan></text>
+
+        <rect class="box" x="910" y="276" width="270" height="60" rx="6"/>
+        <text class="bt" x="926" y="301">Zalo</text>
+        <text class="sm" x="926" y="321">Bước 5 · <tspan class="need">cần Zalo OA, gói ZNS</tspan></text>
+
+        <!-- bus xem và in -->
+        <polyline class="flow" points="570,506 880,506"/>
+        <text class="lab" x="725" y="496" text-anchor="middle">dữ liệu từng ngày</text>
+        <line class="flow" x1="880" y1="434" x2="880" y2="578"/>
+        <line class="flow" x1="880" y1="434" x2="906" y2="434" marker-end="url(#arr)"/>
+        <line class="flow" x1="880" y1="506" x2="906" y2="506" marker-end="url(#arr)"/>
+        <line class="flow" x1="880" y1="578" x2="906" y2="578" marker-end="url(#arr)"/>
+
+        <rect class="box" x="910" y="404" width="270" height="60" rx="6"/>
+        <text class="bt" x="926" y="429">Trang riêng từng khách</text>
+        <text class="sm" x="926" y="449">Bước 3 · <tspan class="need">cần tên miền riêng</tspan></text>
+
+        <rect class="box" x="910" y="476" width="270" height="60" rx="6"/>
+        <text class="bt" x="926" y="501">App tư vấn của bạn</text>
+        <text class="sm" x="926" y="521">Bước 3 · danh sách khách</text>
+
+        <rect class="box" x="910" y="548" width="270" height="60" rx="6"/>
+        <text class="bt" x="926" y="573">PDF để in tặng</text>
+        <text class="sm" x="926" y="593">Bước 3 · thẻ 14 sao, lịch năm</text>
+      </svg>
+    </div>
+    <figcaption>Lá số của mỗi người đi qua bộ tính toán. Bộ quy tắc chọn ra những ngày đáng nhắc rồi gửi qua 4 kênh. Song song, dữ liệu từng ngày đổ vào trang riêng của khách, app tư vấn và bản PDF. Chữ đỏ là thứ phải có trước khi làm được kênh đó.</figcaption>
+  </figure>
+
+  <div class="cols">
+    <section aria-labelledby="h-steps">
+      <h2 id="h-steps">Lộ trình</h2>
+      <ol class="steps">
+        <li class="next"><span class="n">1</span><div><div class="s-title">Bộ tính toán và quy tắc nhắc</div><div class="s-need">Dùng chung cho mọi kênh. Kiểm lại với 12 trang lịch 2026.</div></div></li>
+        <li class="next"><span class="n">2</span><div><div class="s-title">File lịch điện thoại cho bạn và từng khách</div><div class="s-need">Kênh nhắc chạy được ngay, không cần máy chủ.</div></div></li>
+        <li><span class="n">3</span><div><div class="s-title">App tư vấn, trang riêng từng khách, PDF in tặng</div><div class="s-need"><span class="req">Cần thương hiệu.</span> Trang riêng còn <span class="req">cần tên miền.</span></div></div></li>
+        <li><span class="n">4</span><div><div class="s-title">Email tự động mỗi sáng</div><div class="s-need"><span class="req">Cần email và sự đồng ý của khách.</span></div></div></li>
+        <li><span class="n">5</span><div><div class="s-title">Thông báo đẩy và Zalo</div><div class="s-need"><span class="req">Cần tên miền, Zalo OA và gói ZNS.</span></div></div></li>
+      </ol>
+      <p class="side">Song song với các bước: giải mã hướng Kỳ Môn và 8 icon việc từ ảnh lịch. Nếu không khớp được, app ghi rõ là dùng nguồn khác.</p>
+    </section>
+
+    <section aria-labelledby="h-ask">
+      <h2 id="h-ask">Cần bạn chốt</h2>
+      <ul class="ask">
+        <li>Đồng ý bắt đầu bước 1 và 2 <span class="when">· ngay bây giờ</span></li>
+        <li>Tên thương hiệu, logo, màu chủ đạo <span class="when">· trước bước 3</span></li>
+        <li>Tên miền hoặc hosting, nếu chưa có thì mình hướng dẫn <span class="when">· trước bước 3</span></li>
+        <li>Zalo OA đã xác thực chưa <span class="when">· trước bước 5</span></li>
+        <li>Ảnh cuốn lịch 2027, nếu có <span class="when">· để kiểm năm tới</span></li>
+      </ul>
+    </section>
+  </div>
+</div>

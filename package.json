@@ -1,0 +1,11 @@
+{
+  "name": "lich-thong-thu",
+  "private": true,
+  "type": "module",
+  "description": "Lịch phong thủy cá nhân: 14 sao, trực, phi tinh và nhắc nhở qua file lịch",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node --test",
+    "ics": "node scripts/make-ics.js"
+  }
+}
