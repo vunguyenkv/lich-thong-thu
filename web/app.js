@@ -10,7 +10,7 @@ import { dayInfo, TRUC, TRUC_Y } from './src/day.js';
 import { computeProfile } from './src/stars.js';
 import { starIcon } from './src/star-icons.js';
 import { buildReminders, DEFAULTS } from './src/reminders.js';
-import { monthFengShui } from './src/flyingstars.js';
+import { monthFengShui, yearAfflictions, PALACE, STAR_NAME, THEME } from './src/flyingstars.js';
 import { thaiTueStatus } from './src/relations.js';
 import { dayAdvice, VERDICT } from './src/advice.js';
 import { toICS } from './src/ics.js';
@@ -30,6 +30,7 @@ const TODAY = jdFromDate(now.getDate(), now.getMonth() + 1, now.getFullYear());
 const TABS = ['homnay', 'nhacnho', 'lich', 'laso'];
 const DOW = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
 const HORIZONS = { 30: '30 ngày tới', 90: '3 tháng tới', 365: '1 năm tới' };
+const CUNG = ['ĐN', 'N', 'TN', 'Đ', 'C', 'T', 'ĐB', 'B', 'TB'];   // Nam ở trên như lịch in
 
 const state = {
   phase: 'loading',   // loading | signin | sent | onboarding | app
@@ -260,8 +261,19 @@ function verdictReason(a) {
 function viewHomNay(person, profile) {
   const a = dayAdvice(profile, state.date), info = a.info, L = info.lunar;
   const fs = monthFengShui(info.year, info.monthBranch);
-  const mName = gzName(monthPillar(info.year, info.monthBranch));
+  const mName = gzName(monthPillar(info.year, info.monthBranch)), yName = gzName(yearPillar(info.year));
   const upcoming = buildReminders(profile, state.date + 1, state.date + 14, state.rem).slice(0, 6);
+  const where = (p) => p.name + (p.inferred ? '*' : '');
+  const chips = (list, cls) => list.map((p) => `<span class="chip${cls}">${where(p)}: ${p.themes.join(', ')}</span>`).join('');
+  const notes = (list) => list.map((p) => `<span class="chip${p.good ? '' : ' bad'}">${where(p)}: ${p.note}</span>`).join('');
+  const aff = yearAfflictions(info.year);
+  const level = Object.fromEntries(fs.palaces.map((p) => [p.key, p.level]));
+  const cung = CUNG.map((k) => {
+    const name = k === 'C' ? 'Trung cung' : PALACE[k].name, y = fs.yearChart[k], m = fs.monthChart[k];
+    const tags = aff.filter((x) => x.palace === k).map((x) => x.name);
+    return `<div class="cung ${k === 'C' ? 'c' : level[k]}" role="img" aria-label="${name}: sao năm ${y} ${STAR_NAME[y]}, sao tháng ${m} ${STAR_NAME[m]}${tags.length ? ', ' + tags.join(', ') : ''}">`
+      + `<span class="hg">${name}</span><span class="sm">${m}</span><span class="sn">${y}</span>${tags.length ? `<span class="hx">${tags.map((t) => `<span>${t}</span>`).join('')}</span>` : ''}</div>`;
+  }).join('');
   return `
   <section class="card">
     <div class="day-nav">
@@ -284,8 +296,20 @@ function viewHomNay(person, profile) {
   </section>
   <section class="card">
     <h2>Trong nhà, tháng ${mName}</h2>
-    <p>${fs.tot.length ? `<b class="good">Khu vực tốt:</b> ${fs.tot.map((p) => p.name).join(', ')}.` : ''} ${fs.tranh.length ? `<b class="warn">Khu vực nên tránh:</b> ${fs.tranh.map((p) => p.name).join(', ')}.` : ''}</p>
-    <p class="note">Xếp theo phi tinh năm và tháng, khớp lịch in 2026.</p>
+    <div class="cuu-cung" role="group" aria-label="Cửu cung phi tinh tháng ${mName}, Nam ở trên">${cung}</div>
+    <p class="note">Nam ở trên như la bàn phong thủy. Số lớn là sao năm, số nhỏ trong ô vuông là sao tháng. Nền xanh: khu vực tốt; nền đỏ: nên tránh; nửa xanh nửa đỏ: có cả mặt tốt lẫn mặt cần tránh.</p>
+    <details class="fold"><summary>Ý nghĩa 9 sao</summary><dl class="afflict">${Object.keys(STAR_NAME).map((n) => `<dt>${n} ${STAR_NAME[n]}</dt><dd>${THEME[n]}</dd>`).join('')}</dl></details>
+    <h3>Khu vực tốt</h3>
+    <div class="chips">${chips(fs.tot, '') || '<span class="muted">Không có khu vực nổi bật</span>'}</div>
+    <h3>Khu vực nên tránh</h3>
+    <div class="chips">${chips(fs.tranh, ' bad') || '<span class="muted">Không có</span>'}</div>
+    <h3>Học thuật</h3>
+    <div class="chips">${notes(fs.hoc) || '<span class="muted">Không có khu vực nổi bật</span>'}</div>
+    <h3>Tình duyên</h3>
+    <div class="chips">${notes(fs.duyen) || '<span class="muted">Không có khu vực nổi bật</span>'}</div>
+    <h3>Hướng xấu năm ${yName}</h3>
+    <dl class="afflict">${aff.map((x) => `<dt>${x.name}</dt><dd>${x.where}, ${x.deg}</dd>`).join('')}</dl>
+    <p class="note">Cách xếp tốt, tránh, học thuật, tình duyên khớp lịch in 2026; lời giải thích là tóm tắt riêng.${fs.palaces.some((p) => p.inferred) ? ' Dấu * là cặp sao lịch in chưa có, tự suy theo tính chất sao.' : ''}</p>
   </section>
   <section class="card">
     <h2>Sắp tới</h2>
@@ -339,9 +363,11 @@ function viewLich(person, profile) {
     const j = first + i, a = dayAdvice(profile, j), info = a.info, L = info.lunar;
     const flag = info.nguyetPha ? '<span class="flag pha">Nguyệt phá</span>' : info.tuePha ? '<span class="flag">Tuế phá</span>' : '';
     const cls = `cell${weekday(j) === 6 ? ' sun' : ''}${j === TODAY ? ' today' : ''}${a.verdict === 'toiUu' ? ' has-opt' : ''}${info.nguyetPha ? ' pha' : ''}`;
+    const stars = a.stars.map((st) => `<span class="${st.opt ? 'opt' : ''}" title="${esc(st.name)}${st.opt ? ' ★ tối ưu' : ''}">${starIcon(st.key)}</span>`).join('');
     cells += `<button class="${cls}" data-act="goto" data-j="${j}" aria-label="Xem ngày ${fmtDate(j)}">
       <span class="d"><span class="dn num">${i + 1}</span><span class="lun num">${L.day === 1 ? `${L.day}/${L.month}` : L.day}</span></span>
-      <span class="meta"><span class="${info.trucTot ? 'good' : ''}">${TRUC[info.truc]}</span></span>${flag}</button>`;
+      <span class="meta"><span class="${info.trucTot ? 'good' : ''}" title="Trực ${TRUC[info.truc]}: ${TRUC_Y[info.truc]}">${TRUC[info.truc]}</span></span>
+      ${flag}<span class="stars">${stars}</span></button>`;
   }
   for (let i = 0; i < (7 - ((lead + days) % 7)) % 7; i++) cells += '<div class="cell blank"></div>';
   return `
