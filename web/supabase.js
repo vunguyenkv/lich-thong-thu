@@ -1,12 +1,28 @@
-// Lớp mỏng bọc quanh Supabase: đăng nhập bằng email (không cần mật khẩu) và
-// đọc/ghi bảng ho_so. Việc ai được xem/sửa gì nằm ở luật RLS trong supabase/schema.sql,
-// không phải ở đây — hàm nào gọi cũng được, Supabase tự chặn nếu không đủ quyền.
+// Lớp mỏng bọc quanh Supabase: đăng nhập bằng email + mật khẩu (chính), hoặc bằng
+// link gửi qua email (phụ, cho ai quên mật khẩu) — và đọc/ghi bảng ho_so. Việc ai
+// được xem/sửa gì nằm ở luật RLS trong supabase/schema.sql, không phải ở đây.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// Gửi link đăng nhập về email; bấm vào link trong email sẽ quay lại đúng trang này.
+// Đăng ký tài khoản mới bằng email + mật khẩu. Nếu project bật "Confirm email",
+// data.session sẽ là null — phải xác nhận qua email trước khi đăng nhập được.
+export async function signUpPassword(email, password) {
+  const { data, error } = await supabase.auth.signUp({
+    email, password,
+    options: { emailRedirectTo: window.location.origin + window.location.pathname },
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function signInPassword(email, password) {
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) throw error;
+}
+
+// Gửi link đăng nhập về email (không cần mật khẩu); bấm vào link sẽ quay lại đúng trang này.
 export async function sendMagicLink(email) {
   const { error } = await supabase.auth.signInWithOtp({
     email,

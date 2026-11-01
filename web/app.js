@@ -15,7 +15,7 @@ import { thaiTueStatus } from './src/relations.js';
 import { dayAdvice, VERDICT } from './src/advice.js';
 import { toICS } from './src/ics.js';
 import { parseDate, slugify } from './src/people.js';
-import { sendMagicLink, signOut, onAuthChange, amIAdmin, getMyProfile, insertProfile, updateProfile, listProfiles } from './supabase.js';
+import { signUpPassword, signInPassword, sendMagicLink, signOut, onAuthChange, amIAdmin, getMyProfile, insertProfile, updateProfile, listProfiles } from './supabase.js';
 
 const $ = (s) => document.querySelector(s);
 const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -41,14 +41,26 @@ const state = {
   horizon: LS.get('ltt:tam', 90),
   flash: null, adminRows: null, adminRejecting: null,
   buoc: 0, huongText: '', degText: '',
+  authMode: 'login',   // login | register | magic — chỉ dùng khi phase === 'signin'
 };
+
+// Dịch vài lỗi đăng nhập hay gặp của Supabase sang tiếng Việt; lỗi lạ thì hiện nguyên văn.
+function dichLoiAuth(err) {
+  const m = err?.message || '';
+  if (/Invalid login credentials/i.test(m)) return 'Email hoặc mật khẩu không đúng.';
+  if (/Email not confirmed/i.test(m) || err?.code === 'email_not_confirmed') return 'Email này chưa xác nhận. Mở email đăng ký trước đó, bấm vào link xác nhận, rồi đăng nhập lại.';
+  if (/User already registered/i.test(m)) return 'Email này đã có tài khoản. Bấm "Đăng nhập" thay vì "Đăng ký".';
+  if (/Password should be at least/i.test(m)) return 'Mật khẩu cần ít nhất 6 ký tự.';
+  if (/rate limit/i.test(m)) return 'Gửi quá nhiều lần liên tiếp, thử lại sau vài phút.';
+  return m || err?.code || 'Có lỗi xảy ra, thử lại.';
+}
 
 // ----- Luồng đăng nhập -----
 async function init() {
   render();
   onAuthChange(async (user) => {
     state.user = user;
-    if (!user) { state.phase = 'signin'; render(); return; }
+    if (!user) { state.phase = 'signin'; state.authMode = 'login'; render(); return; }
     await loadProfile();
   });
 }
@@ -109,7 +121,7 @@ async function adminSetStatus(id, status, reason) {
 function render() {
   document.body.dataset.phase = state.phase;
   $('#view').innerHTML = {
-    loading: viewLoading, signin: viewSignIn, sent: viewSent, onboarding: viewOnboarding,
+    loading: viewLoading, signin: viewSignIn, sent: viewSent, confirm: viewConfirm, onboarding: viewOnboarding,
     pending: viewPending, rejected: viewRejected, admin: viewAdmin, app: viewApp,
   }[state.phase]();
   if (state.phase === 'app') {
@@ -124,19 +136,42 @@ function render() {
 const viewLoading = () => '<div class="card center"><p class="muted">Đang tải…</p></div>';
 
 function viewSignIn() {
+  const mode = state.authMode;
   const f = state.flash?.target === 'signin' ? `<p class="msg ${state.flash.kind}">${esc(state.flash.text)}</p>` : '';
+
+  if (mode === 'magic') {
+    return `
+    <div class="card center auth-card">
+      <span class="brand-mark" aria-hidden="true">✦</span>
+      <h1>Lịch Thông Thư</h1>
+      <p class="muted">Quên mật khẩu? Nhập email, bấm gửi link — không cần mật khẩu, bấm vào link trong email là vào thẳng trang của mình.</p>
+      <form id="form-magic">
+        <label class="sr" for="f-email">Email</label>
+        <input id="f-email" type="email" required placeholder="email@vi-du.com" autocomplete="email">
+        <button class="primary" type="submit">Gửi link đăng nhập</button>
+      </form>
+      ${f}
+      <p class="note"><button class="link-btn" data-act="to-login">← Quay lại đăng nhập bằng mật khẩu</button></p>
+    </div>`;
+  }
+
+  const dangKy = mode === 'register';
   return `
   <div class="card center auth-card">
     <span class="brand-mark" aria-hidden="true">✦</span>
     <h1>Lịch Thông Thư</h1>
-    <p class="muted">Đăng ký bằng email, nhập ngày sinh một lần — xem ngày tốt, lá số và nhận nhắc nhở của riêng bạn.</p>
-    <form id="form-signin">
-      <label class="sr" for="f-email">Email</label>
-      <input id="f-email" type="email" required placeholder="email@vi-du.com" autocomplete="email">
-      <button class="primary" type="submit">Gửi link đăng nhập</button>
+    <p class="muted">${dangKy ? 'Đăng ký bằng email và mật khẩu, nhập ngày sinh một lần — xem ngày tốt, lá số và nhận nhắc nhở của riêng bạn.' : 'Đăng nhập để xem ngày tốt, lá số và nhắc nhở của bạn.'}</p>
+    <form id="form-auth" class="form-onboarding">
+      <div class="field"><label for="f-email">Email</label><input id="f-email" type="email" required placeholder="email@vi-du.com" autocomplete="email"></div>
+      <div class="field"><label for="f-password">Mật khẩu</label><input id="f-password" type="password" required minlength="6" placeholder="Ít nhất 6 ký tự" autocomplete="${dangKy ? 'new-password' : 'current-password'}"></div>
+      ${dangKy ? '<div class="field"><label for="f-password2">Nhập lại mật khẩu</label><input id="f-password2" type="password" required minlength="6" autocomplete="new-password"></div>' : ''}
+      <button class="primary" type="submit">${dangKy ? 'Đăng ký' : 'Đăng nhập'}</button>
     </form>
     ${f}
-    <p class="note">Không cần mật khẩu. Bạn sẽ nhận một email có link, bấm vào là vào thẳng trang của mình.</p>
+    <p class="note">${dangKy
+      ? 'Đã có tài khoản? <button class="link-btn" data-act="to-login">Đăng nhập</button>'
+      : 'Chưa có tài khoản? <button class="link-btn" data-act="to-register">Đăng ký</button>'}</p>
+    <p class="note"><button class="link-btn" data-act="to-magic">Quên mật khẩu? Đăng nhập bằng link gửi qua email</button></p>
   </div>`;
 }
 
@@ -146,6 +181,14 @@ const viewSent = () => `
     <h1>Kiểm tra email</h1>
     <p>Đã gửi link đăng nhập tới <b>${esc(state.lastEmail)}</b>. Mở email đó trên chính điện thoại hoặc máy tính này và bấm vào link.</p>
     <button data-act="back-signin">Dùng email khác</button>
+  </div>`;
+
+const viewConfirm = () => `
+  <div class="card center auth-card">
+    <span class="brand-mark" aria-hidden="true">✉️</span>
+    <h1>Xác nhận email</h1>
+    <p>Đã gửi email xác nhận tới <b>${esc(state.lastEmail)}</b>. Mở email đó, bấm vào link để kích hoạt tài khoản, rồi quay lại đăng nhập bằng mật khẩu vừa đặt.</p>
+    <button data-act="to-login">Quay lại đăng nhập</button>
   </div>`;
 
 function viewOnboarding() {
@@ -589,6 +632,9 @@ document.addEventListener('click', async (e) => {
   else if (act === 'download') await download();
   else if (act === 'signout') await signOut();
   else if (act === 'back-signin') { state.phase = 'signin'; render(); }
+  else if (act === 'to-login') { state.phase = 'signin'; state.authMode = 'login'; state.flash = null; render(); }
+  else if (act === 'to-register') { state.phase = 'signin'; state.authMode = 'register'; state.flash = null; render(); }
+  else if (act === 'to-magic') { state.phase = 'signin'; state.authMode = 'magic'; state.flash = null; render(); }
   else if (act === 'lam-moi') await loadProfile();
   else if (act === 'duyet') await adminSetStatus(el.dataset.id, 'approved');
   else if (act === 'tuchoi') { state.adminRejecting = el.dataset.id; render(); $('#ly-do-' + el.dataset.id)?.focus(); }
@@ -618,11 +664,30 @@ document.addEventListener('change', (e) => {
 });
 
 document.addEventListener('submit', async (e) => {
-  if (e.target.id === 'form-signin') {
+  if (e.target.id === 'form-magic') {
     e.preventDefault();
     const email = $('#f-email').value.trim();
     try { await sendMagicLink(email); state.lastEmail = email; state.phase = 'sent'; render(); }
-    catch (err) { flash('signin', `Chưa gửi được: ${err?.message || err?.code}`, 'err'); }
+    catch (err) { flash('signin', `Chưa gửi được: ${dichLoiAuth(err)}`, 'err'); }
+    return;
+  }
+  if (e.target.id === 'form-auth') {
+    e.preventDefault();
+    const email = $('#f-email').value.trim(), password = $('#f-password').value;
+    if (state.authMode === 'register') {
+      const password2 = $('#f-password2').value;
+      if (password !== password2) return flash('signin', 'Hai mật khẩu nhập không khớp.', 'err');
+      if (password.length < 6) return flash('signin', 'Mật khẩu cần ít nhất 6 ký tự.', 'err');
+      try {
+        const data = await signUpPassword(email, password);
+        // Không có session nghĩa là project yêu cầu xác nhận email trước; có session thì
+        // onAuthChange tự xử lý tiếp (không cần làm gì thêm ở đây).
+        if (!data.session) { state.lastEmail = email; state.phase = 'confirm'; render(); }
+      } catch (err) { flash('signin', dichLoiAuth(err), 'err'); }
+    } else {
+      try { await signInPassword(email, password); }
+      catch (err) { flash('signin', dichLoiAuth(err), 'err'); }
+    }
     return;
   }
   if (e.target.id === 'form-onboarding') {
