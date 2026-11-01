@@ -140,6 +140,48 @@ button.danger { color: var(--son); border-color: var(--son); }
 .tu-choi-ly-do { display: grid; gap: 8px; margin-top: 10px; max-width: 420px; }
 .tu-choi-ly-do input { width: 100%; }
 
+/* Đo phương vị tại nhà: 5 bước, mỗi bước một hình, ô nhập số độ ở bước 3 và 4 */
+.link-btn { justify-self: start; background: none; border: 0; padding: 0; color: var(--jade); text-align: left; text-decoration: underline; text-underline-offset: 3px; font-weight: 600; }
+.link-btn:hover { background: none; color: var(--jade); }
+.do-nha { scroll-margin-top: 16px; }
+.buoc-so { display: flex; gap: 8px; }
+.buoc-so button { width: 44px; padding: 0; border-radius: 50%; font-variant-numeric: tabular-nums; }
+.buoc-so button[aria-current="step"] { background: var(--ink); border-color: var(--ink); color: var(--sheet); }
+.buoc-hinh { display: grid; justify-items: center; padding: 12px; background: var(--paper); border-radius: 12px; }
+#buoc-tieu-de:focus { outline: none; }
+.buoc-y { margin: 0; padding-left: 20px; display: grid; gap: 6px; font-size: 14px; }
+.buoc-nav { display: flex; justify-content: space-between; gap: 8px; }
+.tra-do { display: grid; gap: 8px; }
+.tra-do label { font-weight: 600; font-size: 13px; }
+.tra-do .deg-row { display: flex; align-items: center; gap: 8px; }
+.tra-do input { width: 130px; }
+.tra-do [role="status"] { font-size: 14px; line-height: 1.6; }
+.do-bang { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; margin: 0; font-size: 14px; font-variant-numeric: tabular-nums; }
+.do-bang dt { font-weight: 700; } .do-bang dd { margin: 0; color: var(--muted); }
+.ill { width: 100%; max-width: 340px; height: auto; color: var(--ink); }
+.ill .nha, .ill .tuong { fill: none; stroke: currentColor; stroke-width: 2; }
+.ill .phu { fill: none; stroke: currentColor; stroke-opacity: .5; stroke-dasharray: 4 4; }
+.ill .giua { stroke: var(--jade); stroke-width: 1.5; stroke-dasharray: 3 5; }
+.ill .ray line { stroke: currentColor; stroke-opacity: .35; stroke-dasharray: 4 4; }
+.ill .kt { fill: none; stroke: var(--muted); stroke-width: 1.5; }
+.ill .tam { fill: var(--son); }
+.ill .chi { stroke: var(--son); stroke-width: 2.5; }
+.ill .mui { fill: var(--son); }
+.ill .mat, .ill .dau { fill: var(--sheet); stroke: currentColor; stroke-width: 1.5; }
+.ill .kim-bac { fill: var(--son); }
+.ill .kim-nam { fill: var(--muted); }
+.ill .so8 { fill: none; stroke: var(--jade); stroke-width: 2.5; }
+.ill .nguoi { fill: var(--jade-soft); stroke: currentColor; stroke-width: 1.5; }
+.ill .may { fill: currentColor; }
+.ill .cua { stroke: currentColor; stroke-width: 2; }
+.ill text { font-size: 12px; font-weight: 600; text-anchor: middle; dominant-baseline: middle; fill: currentColor; paint-order: stroke; stroke: var(--paper); stroke-width: 4px; stroke-linejoin: round; }
+.ill .trai { text-anchor: end; }
+.ill .phai { text-anchor: start; }
+.ill .dir { fill: var(--muted); }
+.ill .so { fill: var(--jade); }
+.ill .tot { fill: var(--positive); }
+.ill .canh { fill: var(--son); }
+
 @media (max-width: 480px) {
   .bar { flex-wrap: wrap; } .who { order: 2; margin-left: 0; }
   .cell { min-height: 60px; } .cell .lun, .cell .meta { display: none; }

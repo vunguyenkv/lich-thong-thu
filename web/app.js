@@ -10,7 +10,7 @@ import { dayInfo, TRUC, TRUC_Y } from './src/day.js';
 import { computeProfile } from './src/stars.js';
 import { starIcon } from './src/star-icons.js';
 import { buildReminders, DEFAULTS } from './src/reminders.js';
-import { monthFengShui, yearAfflictions, PALACE, STAR_NAME, THEME } from './src/flyingstars.js';
+import { monthFengShui, yearAfflictions, PALACE, STAR_NAME, THEME, palaceAt, mountainAt, palaceRange } from './src/flyingstars.js';
 import { thaiTueStatus } from './src/relations.js';
 import { dayAdvice, VERDICT } from './src/advice.js';
 import { toICS } from './src/ics.js';
@@ -40,6 +40,7 @@ const state = {
   rem: { ...DEFAULTS, ...LS.get('ltt:nhac', {}) },
   horizon: LS.get('ltt:tam', 90),
   flash: null, adminRows: null, adminRejecting: null,
+  buoc: 0, huongText: '', degText: '',
 };
 
 // ----- Luồng đăng nhập -----
@@ -258,6 +259,154 @@ function verdictReason(a) {
   return trucText + (a.stars.length ? ` Có sao ${names(a.stars)}.` : '');
 }
 
+// ----- Đo phương vị tại nhà: 5 bước, mỗi bước một hình, ô nhập số độ ở bước 3 và 4 -----
+const ARROW = (id) => `<defs><marker id="${id}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mui" d="M0 0L10 5L0 10z"/></marker></defs>`;
+
+const HINH_TAM = '<svg class="ill" viewBox="0 0 300 220" role="img" aria-label="Đo chiều dài và chiều rộng phần nhà chính rồi chia đôi; chỗ hai đường giữa gặp nhau là tâm nhà; ban công không tính">'
+  + '<rect class="nha" x="60" y="40" width="200" height="130"/>'
+  + '<rect class="phu" x="200" y="170" width="60" height="30"/><text class="trai" x="192" y="188">Ban công: không tính</text>'
+  + '<line class="giua" x1="160" y1="40" x2="160" y2="170"/><line class="giua" x1="60" y1="105" x2="260" y2="105"/>'
+  + '<path class="kt" d="M60 18V30M260 18V30M60 24H260"/><text x="160" y="11">Chiều dài ÷ 2</text>'
+  + '<path class="kt" d="M38 40H50M38 170H50M44 40V170"/><text transform="rotate(-90 24 105)" x="24" y="105">Chiều rộng ÷ 2</text>'
+  + '<circle class="tam" cx="160" cy="105" r="7"/><text x="160" y="127">Tâm nhà</text></svg>';
+
+const HINH_LABAN = '<svg class="ill" viewBox="0 0 300 220" role="img" aria-label="Điện thoại mở ứng dụng la bàn, cầm nằm phẳng; xoay máy theo hình số 8 để hiệu chỉnh; tránh xa đồ kim loại">'
+  + '<rect class="nha" x="40" y="30" width="86" height="160" rx="14"/><circle class="mat" cx="83" cy="100" r="30"/>'
+  + '<path class="kim-bac" d="M83 72L90 100H76Z"/><path class="kim-nam" d="M83 128L90 100H76Z"/>'
+  + '<text x="83" y="58">Bắc</text><text class="so" x="83" y="152">135°</text>'
+  + '<path class="so8" d="M215 105C245 65 285 75 280 105C275 135 245 145 215 105C185 65 145 75 150 105C155 135 185 145 215 105Z"/>'
+  + '<text x="215" y="162">Xoay hình số 8</text><text class="canh" x="215" y="190">Cách tủ lạnh, cột sắt 1 m</text></svg>';
+
+const HINH_CUA = '<svg class="ill" viewBox="0 0 300 220" role="img" aria-label="Đứng ở tâm nhà, quay mặt ra cửa chính, đầu điện thoại chĩa thẳng ra cửa; số độ trên màn hình là hướng nhà">' + ARROW('mui-cua')
+  + '<path class="nha" d="M125 180H50V30H250V180H175"/><path class="cua" d="M175 180L156 160"/>'
+  + '<text x="150" y="50">Màn hình: 135°</text><text class="tot" x="150" y="70">→ nhà hướng Đông Nam</text>'
+  + '<ellipse class="nguoi" cx="150" cy="100" rx="22" ry="10"/><circle class="dau" cx="150" cy="100" r="9"/><rect class="may" x="143" y="114" width="14" height="20" rx="3"/><text class="trai" x="122" y="100">Bạn ở tâm</text>'
+  + '<line class="chi" x1="150" y1="138" x2="150" y2="176" marker-end="url(#mui-cua)"/><text class="phai" x="162" y="156">Chĩa ra cửa</text>'
+  + '<text x="150" y="203">Cửa chính</text></svg>';
+
+const HINH_PHONG = '<svg class="ill" viewBox="0 0 300 220" role="img" aria-label="Vẫn đứng ở tâm nhà, xoay người chĩa điện thoại về từng phòng và đọc số độ">' + ARROW('mui-phong')
+  + '<rect class="nha" x="30" y="20" width="240" height="170"/><path class="tuong" d="M150 20V78M150 132V190M30 105H118M182 105H270"/>'
+  + '<circle class="tam" cx="150" cy="105" r="7"/>'
+  + [[105, 75], [195, 75], [105, 135], [195, 135]].map(([x, y]) => `<line class="chi" x1="${150 + (x - 150) * 0.3}" y1="${105 + (y - 105) * 0.3}" x2="${x}" y2="${y}" marker-end="url(#mui-phong)"/>`).join('')
+  + '<text x="75" y="42">Phòng ngủ</text><text class="so" x="75" y="60">265°</text>'
+  + '<text x="225" y="42">Bếp</text><text class="so" x="225" y="60">10°</text>'
+  + '<text class="so" x="75" y="150">190°</text><text x="75" y="168">Phòng khách</text>'
+  + '<text class="so" x="225" y="150">80°</text><text x="225" y="168">Bàn làm việc</text></svg>';
+
+// Mặt bằng mẫu: tâm nhà và 8 vùng 45°, Nam ở trên như bảng 9 ô
+const PLAN = (() => {
+  const cx = 150, cy = 140, rad = Math.PI / 180;
+  const at = (d, r) => [cx - r * Math.sin(d * rad), cy + r * Math.cos(d * rad)].map((v) => v.toFixed(1));
+  const rays = Array.from({ length: 8 }, (_, k) => { const [x, y] = at(22.5 + 45 * k, 220); return `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}"/>`; }).join('');
+  const names = Object.values(PALACE).map((p) => { const [x, y] = at(p.deg, 80); return `<text x="${x}" y="${y}">${p.name}</text>`; }).join('');
+  return '<svg class="ill" viewBox="0 0 300 290" role="img" aria-label="Mặt bằng nhà: từ tâm nhà chia 8 vùng mỗi vùng 45 độ, Nam ở trên giống bảng 9 ô">'
+    + '<defs><clipPath id="plan-nha"><rect x="30" y="40" width="240" height="200"/></clipPath></defs>'
+    + `<g class="ray" clip-path="url(#plan-nha)">${rays}</g>`
+    + '<rect class="nha" x="30" y="40" width="240" height="200" rx="4"/>'
+    + `<circle class="tam" cx="${cx}" cy="${cy}" r="6"/><text x="${cx}" y="${cy + 22}">Tâm nhà</text>${names}`
+    + '<text class="dir" x="150" y="22">↑ Nam</text><text class="dir" x="150" y="268">↓ Bắc</text></svg>';
+})();
+
+const BUOC = [
+  { ten: 'Tìm tâm nhà', hinh: HINH_TAM, y: [
+    'Chỉ tính phần nhà chính có mái che, bỏ ban công, sân, gara, chái phụ.',
+    'Đo chiều dài rồi chia đôi, đo chiều rộng rồi chia đôi. Chỗ hai đường giữa gặp nhau là tâm nhà, đánh dấu bằng băng keo.',
+    'Chung cư chỉ tính trong căn hộ. Nhà nhiều tầng thì mỗi tầng tìm tâm riêng. Nhà hình chữ L lấy tâm của khối nhà chính.',
+  ] },
+  { ten: 'Chuẩn bị la bàn', hinh: HINH_LABAN, y: [
+    'iPhone mở ứng dụng La bàn có sẵn. Android mở Google Maps hoặc một ứng dụng la bàn.',
+    'Tháo ốp lưng có nam châm, rồi xoay máy theo hình số 8 vài vòng để máy tự hiệu chỉnh.',
+    'Tránh xa tủ lạnh, két sắt, cột sắt, ổ điện khoảng 1 mét. Dùng la bàn thường thì đặt nằm phẳng, đợi kim đứng yên, xoay mặt số cho vạch 0 trùng đầu kim chỉ Bắc.',
+  ] },
+  { ten: 'Đứng ở tâm, quay mặt ra cửa chính', hinh: HINH_CUA, o: 'huong', y: [
+    'Đứng đúng điểm tâm nhà, mặt nhìn thẳng ra cửa chính.',
+    'Cầm điện thoại nằm phẳng ngang ngực, đầu điện thoại chĩa thẳng ra cửa. Đợi số đứng yên rồi đọc: đó là hướng nhà.',
+    'Đo hai, ba lần. Lệch nhau vài độ là bình thường; lệch nhiều là đang gần đồ kim loại, nên dịch ra một chút.',
+  ] },
+  { ten: 'Chĩa về từng phòng', hinh: HINH_PHONG, o: 'phong', y: [
+    'Vẫn đứng ở tâm nhà, xoay người cho đầu điện thoại chĩa về phía phòng cần xem: bếp, phòng ngủ, bàn làm việc, két tiền.',
+    'Đọc số độ rồi nhập vào ô dưới để biết phòng đó thuộc vùng nào và tháng này tốt hay nên tránh.',
+  ] },
+  { ten: 'Vẽ 8 vùng lên mặt bằng', hinh: PLAN, bang: true, y: [
+    'Từ tâm nhà chia 8 vùng, mỗi vùng 45°, theo bảng số độ bên dưới.',
+    'Khi so với bảng 9 ô, xoay bảng cho ô Nam trùng phía Nam thật của nhà, đừng đặt nguyên bảng lên giấy.',
+    'Hướng nhà (cửa chính nhìn ra đâu) khác phương vị. Bảng 9 ô dùng phương vị, tính từ tâm nhà.',
+  ] },
+];
+
+// Số độ người dùng gõ: null nếu bỏ trống, NaN nếu sai, còn lại là số 0–360
+function parseDeg(text) {
+  const t = String(text ?? '').trim().replace(',', '.');
+  if (!t) return null;
+  const deg = Number(t);
+  return Number.isFinite(deg) && deg >= 0 && deg <= 360 ? deg : NaN;
+}
+// Tên vùng bên cạnh khi số đo cách ranh giới dưới 3°
+const nearEdge = (deg) => { const off = mod(deg + 22.5, 45); return off < 3 || off > 42 ? PALACE[palaceAt(off < 3 ? deg - 3 : deg + 3)].name : null; };
+
+// Bước 3: số độ khi chĩa ra cửa chính là hướng nhà, sau lưng là tọa
+function huongReading(text) {
+  const deg = parseDeg(text);
+  if (deg === null) return 'Nhập số độ trên màn hình khi đầu điện thoại chĩa ra cửa chính.';
+  if (Number.isNaN(deg)) return 'Số độ phải từ 0 đến 360.';
+  const out = [`<b>Nhà hướng ${PALACE[palaceAt(deg)].name}</b>, tọa ${PALACE[palaceAt(deg + 180)].name} (tọa ${mountainAt(deg + 180)} hướng ${mountainAt(deg)}).`];
+  const edge = nearEdge(deg);
+  if (edge) out.push(`Số đo sát ranh giới với hướng ${edge}, nên đo lại cho chắc.`);
+  return out.join(' ');
+}
+
+// Bước 4: số độ khi chĩa về một phòng ra vùng trên bảng 9 ô của tháng đang xem
+function degReading(text) {
+  const deg = parseDeg(text);
+  if (deg === null) return 'Nhập số độ trên màn hình khi đầu điện thoại chĩa về phòng đó.';
+  if (Number.isNaN(deg)) return 'Số độ phải từ 0 đến 360.';
+  const info = dayInfo(state.date), fs = monthFengShui(info.year, info.monthBranch), key = palaceAt(deg);
+  const find = (list) => list.find((x) => x.key === key);
+  const tot = find(fs.tot), tranh = find(fs.tranh), hoc = find(fs.hoc), duyen = find(fs.duyen);
+  const out = [`<b>${deg}° là ${PALACE[key].name}</b> (sơn ${mountainAt(deg)}).`];
+  if (tot) out.push(`Tháng ${fs.pillar}: khu vực tốt, ${tot.themes.join(', ')}.`);
+  if (tranh) out.push(`Tháng ${fs.pillar}: nên tránh, ${tranh.themes.join(', ')}.`);
+  if (!tot && !tranh) out.push(`Tháng ${fs.pillar}: bình thường.`);
+  if (hoc) out.push(`Học thuật: ${hoc.note}.`);
+  if (duyen) out.push(`Tình duyên: ${duyen.note}.`);
+  const aff = yearAfflictions(info.year).filter((x) => x.palace === key).map((x) => x.name);
+  if (aff.length) out.push(`Năm nay có ${aff.join(', ')}: không động thổ, sửa chữa lớn ở vùng này.`);
+  const edge = nearEdge(deg);
+  if (edge) out.push(`Số đo sát ranh giới với ${edge}, nên đo lại cho chắc.`);
+  if (find(fs.palaces).inferred) out.push('Cặp sao này lịch in chưa có, đang tự suy.');
+  return out.join(' ');
+}
+
+function viewDoNha() {
+  const i = state.buoc, b = BUOC[i];
+  const pills = BUOC.map((x, k) => `<button data-act="buoc" data-n="${k}" aria-label="Bước ${k + 1}: ${x.ten}"${k === i ? ' aria-current="step"' : ''}>${k + 1}</button>`).join('');
+  const input = (id, label, hint, value, out) => `<div class="tra-do"><label for="${id}">${label}</label>`
+    + `<div class="deg-row"><input id="${id}" inputmode="decimal" autocomplete="off" placeholder="${hint}" value="${esc(value)}"><span class="muted">độ</span></div>`
+    + `<p id="${id}-out" role="status">${out}</p></div>`;
+  const tra = b.o === 'huong' ? input('f-huong', 'Số độ khi chĩa ra cửa chính', 'vd 135', state.huongText, huongReading(state.huongText))
+    : b.o === 'phong' ? input('f-deg', 'Số độ khi chĩa về phòng', 'vd 210', state.degText, degReading(state.degText)) : '';
+  const bang = b.bang ? `<dl class="do-bang">${['B', 'ĐB', 'Đ', 'ĐN', 'N', 'TN', 'T', 'TB'].map((k) => `<dt>${PALACE[k].name}</dt><dd>${palaceRange(k)}</dd>`).join('')}</dl>` : '';
+  return `
+      <section class="card do-nha" id="do-nha">
+        <h2>Đo phương vị tại nhà</h2>
+        <div class="buoc-so" role="group" aria-label="Các bước">${pills}</div>
+        <div class="buoc-hinh">${b.hinh}</div>
+        <h3 id="buoc-tieu-de" tabindex="-1">Bước ${i + 1}. ${b.ten}</h3>
+        <ul class="buoc-y">${b.y.map((t) => `<li>${t}</li>`).join('')}</ul>
+        ${tra}${bang}
+        <div class="buoc-nav">
+          ${i > 0 ? `<button data-act="buoc" data-n="${i - 1}">‹ Bước trước</button>` : '<span></span>'}
+          ${i < BUOC.length - 1 ? `<button class="primary" data-act="buoc" data-n="${i + 1}">Bước tiếp ›</button>` : '<button data-act="buoc" data-n="0">Về bước 1</button>'}
+        </div>
+      </section>`;
+}
+
+// Cuộn tới thẻ hướng dẫn và đưa con trỏ bàn phím về tiêu đề bước
+function showStep() {
+  document.getElementById('do-nha')?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+  document.getElementById('buoc-tieu-de')?.focus({ preventScroll: true });
+}
+
 function viewHomNay(person, profile) {
   const a = dayAdvice(profile, state.date), info = a.info, L = info.lunar;
   const fs = monthFengShui(info.year, info.monthBranch);
@@ -298,6 +447,7 @@ function viewHomNay(person, profile) {
     <h2>Trong nhà, tháng ${mName}</h2>
     <div class="cuu-cung" role="group" aria-label="Cửu cung phi tinh tháng ${mName}, Nam ở trên">${cung}</div>
     <p class="note">Nam ở trên như la bàn phong thủy. Số lớn là sao năm, số nhỏ trong ô vuông là sao tháng. Nền xanh: khu vực tốt; nền đỏ: nên tránh; nửa xanh nửa đỏ: có cả mặt tốt lẫn mặt cần tránh.</p>
+    <button class="link-btn" data-act="den-do-nha">Phòng nào thuộc ô nào? Xem cách đo tại nhà ↓</button>
     <details class="fold"><summary>Ý nghĩa 9 sao</summary><dl class="afflict">${Object.keys(STAR_NAME).map((n) => `<dt>${n} ${STAR_NAME[n]}</dt><dd>${THEME[n]}</dd>`).join('')}</dl></details>
     <h3>Khu vực tốt</h3>
     <div class="chips">${chips(fs.tot, '') || '<span class="muted">Không có khu vực nổi bật</span>'}</div>
@@ -311,6 +461,7 @@ function viewHomNay(person, profile) {
     <dl class="afflict">${aff.map((x) => `<dt>${x.name}</dt><dd>${x.where}, ${x.deg}</dd>`).join('')}</dl>
     <p class="note">Cách xếp tốt, tránh, học thuật, tình duyên khớp lịch in 2026; lời giải thích là tóm tắt riêng.${fs.palaces.some((p) => p.inferred) ? ' Dấu * là cặp sao lịch in chưa có, tự suy theo tính chất sao.' : ''}</p>
   </section>
+  ${viewDoNha()}
   <section class="card">
     <h2>Sắp tới</h2>
     ${upcoming.length
@@ -446,6 +597,13 @@ document.addEventListener('click', async (e) => {
     const reason = $('#ly-do-' + el.dataset.id)?.value.trim();
     await adminSetStatus(el.dataset.id, 'rejected', reason);
   }
+  else if (act === 'buoc') { state.buoc = Number(el.dataset.n); render(); showStep(); }
+  else if (act === 'den-do-nha') showStep();
+});
+
+document.addEventListener('input', (e) => {
+  if (e.target.id === 'f-deg') { state.degText = e.target.value; $('#f-deg-out').innerHTML = degReading(state.degText); }
+  else if (e.target.id === 'f-huong') { state.huongText = e.target.value; $('#f-huong-out').innerHTML = huongReading(state.huongText); }
 });
 
 document.addEventListener('change', (e) => {
