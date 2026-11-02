@@ -42,6 +42,7 @@ const state = {
   flash: null, adminRows: null, adminRejecting: null,
   buoc: 0, huongText: '', degText: '',
   authMode: 'login',   // login | register | magic — chỉ dùng khi phase === 'signin'
+  loadingTimerSet: false, loadingSlow: false,
 };
 
 // Dịch vài lỗi đăng nhập hay gặp của Supabase sang tiếng Việt; lỗi lạ thì hiện nguyên văn.
@@ -120,6 +121,20 @@ async function adminSetStatus(id, status, reason) {
 // ----- Vẽ -----
 function render() {
   document.body.dataset.phase = state.phase;
+  // Mạng chập chờn có thể khiến request tới Supabase treo mãi không trả lời (không
+  // lỗi, không thành công) — khi đó trang sẽ kẹt ở "Đang tải…" vô thời hạn. Đặt một
+  // hẹn giờ MỘT LẦN cho mỗi lượt tải (cờ loadingTimerSet, không phải chính cái timer
+  // — nếu dùng chính timer làm cờ thì lúc nó bắn ra sẽ bị coi là "chưa có timer" và
+  // render() lại tự đặt lại loadingSlow về false ngay trong cùng lượt vẽ, nút không
+  // bao giờ kịp hiện). Tải quá 8 giây thì tự hiện nút tải lại, không bắt người dùng đoán.
+  if (state.phase === 'loading') {
+    if (!state.loadingTimerSet) {
+      state.loadingTimerSet = true;
+      setTimeout(() => { state.loadingSlow = true; render(); }, 8000);
+    }
+  } else if (state.loadingTimerSet) {
+    state.loadingTimerSet = false; state.loadingSlow = false;
+  }
   $('#view').innerHTML = {
     loading: viewLoading, signin: viewSignIn, sent: viewSent, confirm: viewConfirm, onboarding: viewOnboarding,
     pending: viewPending, rejected: viewRejected, admin: viewAdmin, app: viewApp,
@@ -133,7 +148,9 @@ function render() {
   }
 }
 
-const viewLoading = () => '<div class="card center"><p class="muted">Đang tải…</p></div>';
+const viewLoading = () => state.loadingSlow
+  ? '<div class="card center"><p class="muted">Đang tải hơi lâu, có thể do mạng chập chờn.</p><button class="primary" data-act="tai-lai">Tải lại trang</button></div>'
+  : '<div class="card center"><p class="muted">Đang tải…</p></div>';
 
 function viewSignIn() {
   const mode = state.authMode;
@@ -645,6 +662,7 @@ document.addEventListener('click', async (e) => {
   }
   else if (act === 'buoc') { state.buoc = Number(el.dataset.n); render(); showStep(); }
   else if (act === 'den-do-nha') showStep();
+  else if (act === 'tai-lai') location.reload();
 });
 
 document.addEventListener('input', (e) => {
