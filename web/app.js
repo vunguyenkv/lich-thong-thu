@@ -162,9 +162,9 @@ function viewSignIn() {
       <span class="brand-mark" aria-hidden="true">✦</span>
       <h1>Lịch Thông Thư</h1>
       <p class="muted">Quên mật khẩu? Nhập email, bấm gửi link — không cần mật khẩu, bấm vào link trong email là vào thẳng trang của mình.</p>
-      <form id="form-magic">
+      <form id="form-magic" novalidate>
         <label class="sr" for="f-email">Email</label>
-        <input id="f-email" type="email" required placeholder="email@vi-du.com" autocomplete="email">
+        <input id="f-email" type="email" placeholder="email@vi-du.com" autocomplete="email">
         <button class="primary" type="submit">Gửi link đăng nhập</button>
       </form>
       ${f}
@@ -178,10 +178,10 @@ function viewSignIn() {
     <span class="brand-mark" aria-hidden="true">✦</span>
     <h1>Lịch Thông Thư</h1>
     <p class="muted">${dangKy ? 'Đăng ký bằng email và mật khẩu, nhập ngày sinh một lần — xem ngày tốt, lá số và nhận nhắc nhở của riêng bạn.' : 'Đăng nhập để xem ngày tốt, lá số và nhắc nhở của bạn.'}</p>
-    <form id="form-auth" class="form-onboarding">
-      <div class="field"><label for="f-email">Email</label><input id="f-email" type="email" required placeholder="email@vi-du.com" autocomplete="email"></div>
-      <div class="field"><label for="f-password">Mật khẩu</label><input id="f-password" type="password" required minlength="6" placeholder="Ít nhất 6 ký tự" autocomplete="${dangKy ? 'new-password' : 'current-password'}"></div>
-      ${dangKy ? '<div class="field"><label for="f-password2">Nhập lại mật khẩu</label><input id="f-password2" type="password" required minlength="6" autocomplete="new-password"></div>' : ''}
+    <form id="form-auth" class="form-onboarding" novalidate>
+      <div class="field"><label for="f-email">Email</label><input id="f-email" type="email" placeholder="email@vi-du.com" autocomplete="email"></div>
+      <div class="field"><label for="f-password">Mật khẩu</label><input id="f-password" type="password" placeholder="Ít nhất 6 ký tự" autocomplete="${dangKy ? 'new-password' : 'current-password'}"></div>
+      ${dangKy ? '<div class="field"><label for="f-password2">Nhập lại mật khẩu</label><input id="f-password2" type="password" autocomplete="new-password"></div>' : ''}
       <button class="primary" type="submit">${dangKy ? 'Đăng ký' : 'Đăng nhập'}</button>
     </form>
     ${f}
@@ -217,9 +217,9 @@ function viewOnboarding() {
   <div class="card auth-card">
     <h1>Chào bạn mới</h1>
     <p class="muted">Nhập tên và ngày sinh để tính 14 sao, ngày tốt và nhắc nhở của riêng bạn. Giờ sinh và giới tính không bắt buộc, nhưng có giờ sinh thì lá số chính xác hơn.</p>
-    <form id="form-onboarding" class="form-onboarding">
-      <div class="field"><label for="f-name">Họ tên</label><input id="f-name" required autocomplete="name"></div>
-      <div class="field"><label for="f-date">Ngày sinh</label><input id="f-date" placeholder="01/01/2000" inputmode="numeric" required autocomplete="off"></div>
+    <form id="form-onboarding" class="form-onboarding" novalidate>
+      <div class="field"><label for="f-name">Họ tên</label><input id="f-name" autocomplete="name"></div>
+      <div class="field"><label for="f-date">Ngày sinh</label><input id="f-date" placeholder="01/01/2000" inputmode="numeric" autocomplete="off"></div>
       <div class="field"><label>Giờ sinh (không bắt buộc)</label>
         <div class="gio-phut">
           <select id="f-hh" aria-label="Giờ sinh — giờ"><option value="">Giờ</option>${hourOpts}</select>
@@ -685,6 +685,7 @@ document.addEventListener('submit', async (e) => {
   if (e.target.id === 'form-magic') {
     e.preventDefault();
     const email = $('#f-email').value.trim();
+    if (!email) return flash('signin', 'Nhập email.', 'err');
     try { await sendMagicLink(email); state.lastEmail = email; state.phase = 'sent'; render(); }
     catch (err) { flash('signin', `Chưa gửi được: ${dichLoiAuth(err)}`, 'err'); }
     return;
@@ -692,10 +693,12 @@ document.addEventListener('submit', async (e) => {
   if (e.target.id === 'form-auth') {
     e.preventDefault();
     const email = $('#f-email').value.trim(), password = $('#f-password').value;
+    if (!email) return flash('signin', 'Nhập email.', 'err');
+    if (!password) return flash('signin', 'Nhập mật khẩu.', 'err');
     if (state.authMode === 'register') {
       const password2 = $('#f-password2').value;
-      if (password !== password2) return flash('signin', 'Hai mật khẩu nhập không khớp.', 'err');
       if (password.length < 6) return flash('signin', 'Mật khẩu cần ít nhất 6 ký tự.', 'err');
+      if (password !== password2) return flash('signin', 'Hai mật khẩu nhập không khớp.', 'err');
       try {
         const data = await signUpPassword(email, password);
         // Không có session nghĩa là project yêu cầu xác nhận email trước; có session thì
