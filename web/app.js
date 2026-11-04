@@ -77,7 +77,9 @@ async function loadProfile() {
     if (admin) { await loadAdminQueue(); return; }
     const row = await getMyProfile(state.user.id);
     if (!row) { state.phase = 'onboarding'; render(); return; }
-    if (row.status === 'pending') { state.profile = row; state.phase = 'pending'; render(); return; }
+    // 'rejected' vẫn chặn hẳn. 'pending' thì cho vào xem bản cơ bản luôn (Hôm nay, Lịch
+    // tháng), không bắt chờ không làm gì cả — Nhắc nhở và Lá số chỉ mở khi admin duyệt
+    // (xem FULL_ONLY trong viewApp).
     if (row.status === 'rejected') { state.profile = row; state.phase = 'rejected'; render(); return; }
     setProfile(row);
   } catch (e) {
@@ -137,7 +139,7 @@ function render() {
   }
   $('#view').innerHTML = {
     loading: viewLoading, signin: viewSignIn, sent: viewSent, confirm: viewConfirm, onboarding: viewOnboarding,
-    pending: viewPending, rejected: viewRejected, admin: viewAdmin, app: viewApp,
+    rejected: viewRejected, admin: viewAdmin, app: viewApp,
   }[state.phase]();
   if (state.phase === 'app') {
     document.querySelectorAll('.tabs a').forEach((a) => {
@@ -236,17 +238,6 @@ function viewOnboarding() {
   </div>`;
 }
 
-const viewPending = () => `
-  <div class="card center auth-card">
-    <span class="brand-mark" aria-hidden="true">⏳</span>
-    <h1>Đang chờ duyệt</h1>
-    <p>Hồ sơ của <b>${esc(state.profile.name)}</b> đã gửi, đang chờ xác nhận. Quay lại sau hoặc bấm tải lại bên dưới.</p>
-    <div class="controls" style="justify-content:center">
-      <button data-act="lam-moi">Tải lại</button>
-      <button data-act="signout">Đăng xuất</button>
-    </div>
-  </div>`;
-
 const viewRejected = () => `
   <div class="card center auth-card">
     <span class="brand-mark" aria-hidden="true">✦</span>
@@ -296,19 +287,38 @@ function viewAdmin() {
   </main>`;
 }
 
+// Hai tab này cần admin duyệt mới xem được: Nhắc nhở hẹn trước qua điện thoại và Lá số
+// chi tiết là phần "đặt hàng" thật sự, còn Hôm nay/Lịch tháng cho xem thử trước.
+const FULL_ONLY = ['nhacnho', 'laso'];
+
 function viewApp() {
   const person = state.profile, profile = state.profileCalc;
-  const body = { homnay: viewHomNay, nhacnho: viewNhacNho, lich: viewLich, laso: viewLaSo }[state.tab](person, profile);
+  const approved = person.status === 'approved';
+  const khoa = approved ? null : FULL_ONLY.includes(state.tab);
+  const body = khoa ? viewKhoa() : { homnay: viewHomNay, nhacnho: viewNhacNho, lich: viewLich, laso: viewLaSo }[state.tab](person, profile);
+  const banner = approved ? '' : `
+  <section class="card v-canThan">
+    <b>Hồ sơ đang chờ duyệt</b>
+    <span class="muted">Bạn đang xem bản cơ bản (Hôm nay, Lịch tháng). Nhắc nhở và Lá số chi tiết sẽ mở ngay khi admin xác nhận — không cần làm gì thêm.</span>
+    <div class="controls"><button data-act="lam-moi">Admin vừa duyệt? Tải lại</button></div>
+  </section>`;
   return `
   <header class="bar">
     <div class="brand"><span class="brand-mark" aria-hidden="true">✦</span><b>Lịch Thông Thư</b></div>
     <nav class="tabs" aria-label="Mục">
-      <a href="#homnay">Hôm nay</a><a href="#nhacnho">Nhắc nhở</a><a href="#lich">Lịch tháng</a><a href="#laso">Lá số</a>
+      <a href="#homnay">Hôm nay</a><a href="#nhacnho">Nhắc nhở${approved ? '' : ' 🔒'}</a><a href="#lich">Lịch tháng</a><a href="#laso">Lá số${approved ? '' : ' 🔒'}</a>
     </nav>
     <div class="who"><span>${esc(person.name)}</span><button data-act="signout">Đăng xuất</button></div>
   </header>
-  <main>${body}</main>`;
+  <main>${banner}${body}</main>`;
 }
+
+const viewKhoa = () => `
+  <section class="card center">
+    <span class="brand-mark" aria-hidden="true">🔒</span>
+    <h2>Chưa mở khoá</h2>
+    <p class="muted">Mục này mở khi admin xác nhận hồ sơ của bạn. Trong lúc chờ, bạn vẫn xem được Hôm nay và Lịch tháng.</p>
+  </section>`;
 
 function verdictReason(a) {
   const names = (list) => list.map((s) => s.name).join(', ');
