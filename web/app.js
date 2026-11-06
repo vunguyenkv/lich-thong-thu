@@ -27,7 +27,7 @@ const LS = {
 
 const now = new Date();
 const TODAY = jdFromDate(now.getDate(), now.getMonth() + 1, now.getFullYear());
-const TABS = ['homnay', 'nhacnho', 'lich', 'laso'];
+const TABS = ['homnay', 'nhacnho', 'lich', 'laso', 'quantri'];
 const DOW = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
 const HORIZONS = { 30: '30 ngày tới', 90: '3 tháng tới', 365: '1 năm tới' };
 const CUNG = ['ĐN', 'N', 'TN', 'Đ', 'C', 'T', 'ĐB', 'B', 'TB'];   // Nam ở trên như lịch in
@@ -72,15 +72,15 @@ async function loadProfile() {
   try {
     const admin = await amIAdmin();
     state.isAdmin = admin;
-    // Admin luôn vào thẳng trang duyệt hồ sơ, không qua luồng đăng ký/chờ duyệt của khách.
-    // Muốn xem lịch của riêng mình, admin vẫn dùng công cụ tư vấn trong Claude như trước.
-    if (admin) { await loadAdminQueue(); return; }
+    // Admin có hồ sơ riêng như khách (để xem lá số của chính mình) và thêm tab "Quản trị"
+    // ngay trong app — không còn bị tách ra một trang riêng không thấy lá số được nữa.
+    if (admin) state.adminRows = await listProfiles().catch(() => null);
     const row = await getMyProfile(state.user.id);
     if (!row) { state.phase = 'onboarding'; render(); return; }
-    // 'rejected' vẫn chặn hẳn. 'pending' thì cho vào xem bản cơ bản luôn (Hôm nay, Lịch
-    // tháng), không bắt chờ không làm gì cả — Nhắc nhở và Lá số chỉ mở khi admin duyệt
-    // (xem FULL_ONLY trong viewApp).
-    if (row.status === 'rejected') { state.profile = row; state.phase = 'rejected'; render(); return; }
+    // 'rejected' chặn hẳn khách thường, nhưng admin luôn xem được hồ sơ của chính mình.
+    // 'pending' thì cho khách vào xem bản cơ bản luôn (Hôm nay, Lịch tháng), không bắt chờ
+    // không làm gì cả — Nhắc nhở và Lá số chỉ mở khi admin duyệt (xem FULL_ONLY trong viewApp).
+    if (!admin && row.status === 'rejected') { state.profile = row; state.phase = 'rejected'; render(); return; }
     setProfile(row);
   } catch (e) {
     state.phase = 'signin';
@@ -96,26 +96,20 @@ function setProfile(row) {
   render();
 }
 
-// ----- Quản trị: duyệt hồ sơ khách tự đăng ký -----
-async function loadAdminQueue() {
-  try {
-    state.adminRows = await listProfiles();
-    state.phase = 'admin';
-    render();
-  } catch (e) {
-    state.phase = 'signin';
-    state.flash = { target: 'signin', kind: 'err', text: `Không tải được danh sách: ${e?.message || e?.code}` };
-    render();
-  }
+// ----- Quản trị: duyệt hồ sơ khách tự đăng ký (tab "Quản trị" ngay trong app) -----
+async function refreshAdminRows() {
+  try { state.adminRows = await listProfiles(); }
+  catch (e) { state.flash = { target: 'quantri', kind: 'err', text: `Không tải được danh sách: ${e?.message || e?.code}` }; }
+  render();
 }
 
 async function adminSetStatus(id, status, reason) {
   try {
     await updateProfile(id, { status, reject_reason: status === 'rejected' ? (reason || null) : null });
     state.adminRejecting = null;
-    await loadAdminQueue();
+    await refreshAdminRows();
   } catch (e) {
-    state.flash = { target: 'admin', kind: 'err', text: `Chưa đổi được: ${e?.message || e?.code}` };
+    state.flash = { target: 'quantri', kind: 'err', text: `Chưa đổi được: ${e?.message || e?.code}` };
     render();
   }
 }
@@ -139,7 +133,7 @@ function render() {
   }
   $('#view').innerHTML = {
     loading: viewLoading, signin: viewSignIn, sent: viewSent, confirm: viewConfirm, onboarding: viewOnboarding,
-    rejected: viewRejected, admin: viewAdmin, app: viewApp,
+    rejected: viewRejected, app: viewApp,
   }[state.phase]();
   if (state.phase === 'app') {
     document.querySelectorAll('.tabs a').forEach((a) => {
@@ -247,14 +241,17 @@ const viewRejected = () => `
     <button data-act="signout">Đăng xuất</button>
   </div>`;
 
-function viewAdmin() {
+function pendingCount() { return (state.adminRows || []).filter((p) => p.status === 'pending').length; }
+
+function viewQuanTri() {
   const rows = state.adminRows || [];
-  const f = state.flash?.target === 'admin' ? `<p class="msg ${state.flash.kind}">${esc(state.flash.text)}</p>` : '';
+  const f = state.flash?.target === 'quantri' ? `<p class="msg ${state.flash.kind}">${esc(state.flash.text)}</p>` : '';
   const nhan = { pending: 'Chờ duyệt', approved: 'Đã duyệt', rejected: 'Đã từ chối' };
   const row = (p) => {
     const dangNhapLyDo = state.adminRejecting === p.id;
+    const laToi = p.user_id === state.user.id;
     return `<li>
-      <div><b>${esc(p.name)}</b> <span class="chip chip-${p.status}">${nhan[p.status] || p.status}</span>
+      <div><b>${esc(p.name)}</b>${laToi ? ' <span class="muted">(bạn)</span>' : ''} <span class="chip chip-${p.status}">${nhan[p.status] || p.status}</span>
         <div class="note">${p.d}/${p.m}/${p.y}${p.hh != null ? ` ${pad(p.hh)}:${pad(p.mi ?? 0)}` : ''}${p.gender ? ` · ${p.gender === 'nam' ? 'Nam' : 'Nữ'}` : ''}${p.email ? ` · ${esc(p.email)}` : ''}</div>
         ${p.status === 'rejected' && p.reject_reason ? `<div class="note">Lý do đã ghi: ${esc(p.reject_reason)}</div>` : ''}
         ${dangNhapLyDo ? `<div class="tu-choi-ly-do">
@@ -267,24 +264,20 @@ function viewAdmin() {
           </div>` : ''}
       </div>
       ${dangNhapLyDo ? '' : `<div class="controls">
-        <button data-act="duyet" data-id="${p.id}">Duyệt</button>
-        <button class="danger" data-act="tuchoi" data-id="${p.id}">Từ chối</button>
+        ${p.status !== 'approved' ? `<button data-act="duyet" data-id="${p.id}">Duyệt</button>` : ''}
+        ${p.status !== 'rejected' ? `<button class="danger" data-act="tuchoi" data-id="${p.id}">Từ chối</button>` : ''}
       </div>`}
     </li>`;
   };
   const pending = rows.filter((p) => p.status === 'pending');
   const rest = rows.filter((p) => p.status !== 'pending');
   return `
-  <header class="bar"><div class="brand"><span class="brand-mark" aria-hidden="true">✦</span><b>Lịch Thông Thư</b></div>
-    <div class="who"><span>Quản trị</span><button data-act="signout">Đăng xuất</button></div></header>
-  <main>
-    <section class="card">
-      <h2>Chờ duyệt (${pending.length})</h2>
-      ${f}
-      ${pending.length ? `<ul class="plain admin-list">${pending.map(row).join('')}</ul>` : '<p class="muted">Không có hồ sơ chờ duyệt.</p>'}
-    </section>
-    ${rest.length ? `<details class="fold"><summary>Hồ sơ khác (${rest.length})</summary><ul class="plain admin-list">${rest.map(row).join('')}</ul></details>` : ''}
-  </main>`;
+  <section class="card">
+    <h2>Chờ duyệt (${pending.length})</h2>
+    ${f}
+    ${pending.length ? `<ul class="plain admin-list">${pending.map(row).join('')}</ul>` : '<p class="muted">Không có hồ sơ chờ duyệt.</p>'}
+  </section>
+  ${rest.length ? `<details class="fold"><summary>Hồ sơ khác (${rest.length})</summary><ul class="plain admin-list">${rest.map(row).join('')}</ul></details>` : ''}`;
 }
 
 // Hai tab này cần admin duyệt mới xem được: Nhắc nhở hẹn trước qua điện thoại và Lá số
@@ -293,20 +286,26 @@ const FULL_ONLY = ['nhacnho', 'laso'];
 
 function viewApp() {
   const person = state.profile, profile = state.profileCalc;
-  const approved = person.status === 'approved';
-  const khoa = approved ? null : FULL_ONLY.includes(state.tab);
-  const body = khoa ? viewKhoa() : { homnay: viewHomNay, nhacnho: viewNhacNho, lich: viewLich, laso: viewLaSo }[state.tab](person, profile);
-  const banner = approved ? '' : `
+  // Admin luôn xem được lá số của chính mình — không cần chờ ai duyệt.
+  const approved = person.status === 'approved' || state.isAdmin;
+  const tab = state.tab === 'quantri' && !state.isAdmin ? 'homnay' : state.tab;
+  const khoa = tab !== 'quantri' && !approved && FULL_ONLY.includes(tab);
+  const body = tab === 'quantri' ? viewQuanTri()
+    : khoa ? viewKhoa()
+    : { homnay: viewHomNay, nhacnho: viewNhacNho, lich: viewLich, laso: viewLaSo }[tab](person, profile);
+  const banner = tab === 'quantri' || approved ? '' : `
   <section class="card v-canThan">
     <b>Hồ sơ đang chờ duyệt</b>
     <span class="muted">Bạn đang xem bản cơ bản (Hôm nay, Lịch tháng). Nhắc nhở và Lá số chi tiết sẽ mở ngay khi admin xác nhận — không cần làm gì thêm.</span>
     <div class="controls"><button data-act="lam-moi">Admin vừa duyệt? Tải lại</button></div>
   </section>`;
+  const soChoDuyet = state.isAdmin ? pendingCount() : 0;
   return `
   <header class="bar">
     <div class="brand"><span class="brand-mark" aria-hidden="true">✦</span><b>Lịch Thông Thư</b></div>
     <nav class="tabs" aria-label="Mục">
       <a href="#homnay">Hôm nay</a><a href="#nhacnho">Nhắc nhở${approved ? '' : ' 🔒'}</a><a href="#lich">Lịch tháng</a><a href="#laso">Lá số${approved ? '' : ' 🔒'}</a>
+      ${state.isAdmin ? `<a href="#quantri">Quản trị${soChoDuyet ? ` (${soChoDuyet})` : ''}</a>` : ''}
     </nav>
     <div class="who"><span>${esc(person.name)}</span><button data-act="signout">Đăng xuất</button></div>
   </header>
@@ -730,11 +729,13 @@ document.addEventListener('submit', async (e) => {
     if (!date) return flash('onboarding', 'Ngày sinh chưa đúng. Dùng dạng 01/01/2000.', 'err');
     if (Boolean(hhText) !== Boolean(miText)) return flash('onboarding', 'Chọn đủ cả giờ và phút, hoặc để trống cả hai.', 'err');
     try {
-      const row = await insertProfile({
+      await insertProfile({
         user_id: state.user.id, name, ...date, hh: hhText ? Number(hhText) : null, mi: miText ? Number(miText) : null,
         gender: $('#f-gender').value || null, email: state.user.email,
+        // Hồ sơ mới luôn 'pending' (cơ sở dữ liệu tự ép, xem supabase/schema.sql) — trừ admin
+        // tự nhập hồ sơ của chính mình, cho phép luôn 'approved' vì họ đã là người duyệt.
+        ...(state.isAdmin ? { status: 'approved' } : {}),
       });
-      // Hồ sơ mới luôn 'pending' (cơ sở dữ liệu tự ép, xem supabase/schema.sql) nên không gọi setProfile() thẳng.
       await loadProfile();
     } catch (err) { flash('onboarding', `Chưa lưu được: ${err?.message || err?.code}`, 'err'); }
   }
